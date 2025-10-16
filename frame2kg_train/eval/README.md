@@ -1,0 +1,1 @@
+This package contains lightweight evaluation helpers for Frame→KG.

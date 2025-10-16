@@ -1,0 +1,11 @@
+transformers>=4.41.0
+datasets
+accelerate
+peft
+bitsandbytes; platform_system == 'Linux'
+wandb
+Pillow
+PyYAML
+torch
+torchvision
+tqdm

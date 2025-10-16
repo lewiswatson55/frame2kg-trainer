@@ -1,0 +1,22 @@
+[project]
+name = "frame2kg_train"
+version = "0.1.0"
+description = "Frame→KG training with pluggable VLM backends"
+authors = [{name="Lewis Watson"}]
+requires-python = ">=3.10"
+dependencies = [
+  "transformers>=4.41.0",
+  "datasets",
+  "accelerate",
+  "peft",
+  "bitsandbytes; platform_system == 'Linux'",
+  "wandb",
+  "Pillow",
+  "PyYAML",
+  "torch",
+  "torchvision",
+  "tdqm",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
