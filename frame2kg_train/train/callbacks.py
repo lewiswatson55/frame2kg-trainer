@@ -8,8 +8,8 @@ from datasets import Dataset
 from PIL import Image
 from transformers import TrainerCallback
 
-from frame2kg.eval.json_utils import first_json_object
-from frame2kg.eval.metrics import calc_node_scores, calc_edge_scores
+from frame2kg_train.eval.json_utils import first_json_object
+from frame2kg_train.eval.metrics import calc_node_scores, calc_edge_scores
 
 
 class PeriodicEvalCallback(TrainerCallback):

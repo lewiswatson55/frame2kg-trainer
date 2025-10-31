@@ -8,12 +8,12 @@ import torch
 from datasets import Dataset
 from transformers import Seq2SeqTrainer, set_seed, EarlyStoppingCallback
 
-from frame2kg.train.args import build_seq2seq_training_args
-from frame2kg.train.callbacks import PeriodicEvalCallback, CustomWandbCallback, SaveAdaptersCallback
-from frame2kg.train.registry import get_backend
-from frame2kg.data.datasets import load_frame2kg
-from frame2kg.eval.metrics import make_compute_metrics
-from frame2kg.data.collators import SYSTEM_PROMPT
+from frame2kg_train.train.args import build_seq2seq_training_args
+from frame2kg_train.train.callbacks import PeriodicEvalCallback, CustomWandbCallback, SaveAdaptersCallback
+from frame2kg_train.train.registry import get_backend
+from frame2kg_train.data.datasets import load_frame2kg
+from frame2kg_train.eval.metrics import make_compute_metrics
+from frame2kg_train.data.collators import SYSTEM_PROMPT
 
 
 class Runner:

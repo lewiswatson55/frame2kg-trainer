@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Any, Dict, List
 
 import torch
-from frame2kg.backends.base import VLMBackend, BackendArtifacts
+from frame2kg_train.backends.base import VLMBackend, BackendArtifacts
 
 
 class BLIP2Backend(VLMBackend):

@@ -11,8 +11,8 @@ from transformers import (
 )
 from PIL import Image
 
-from frame2kg.backends.base import VLMBackend, BackendArtifacts
-from frame2kg.data.collators import QwenVLDataCollator
+from frame2kg_train.backends.base import VLMBackend, BackendArtifacts
+from frame2kg_train.data.collators import QwenVLDataCollator
 
 
 @dataclass

@@ -6,7 +6,7 @@ import json as _json
 
 from transformers import EvalPrediction
 
-from frame2kg.eval.json_utils import first_json_object, normalise_json_text, slice_from_assistant
+from frame2kg_train.eval.json_utils import first_json_object, normalise_json_text, slice_from_assistant
 
 
 def to_box(loc) -> Tuple[float, float, float, float]:
@@ -147,7 +147,7 @@ def _sanitize(mat, pad_id:int):
 
 def make_compute_metrics(tokenizer):
     # Toggle verbose logs with env vars (or flip defaults here)
-    DEBUG = os.getenv("F2KG_DEBUG_METRICS", "1").lower() not in ("0", "false", "no")
+    DEBUG = os.getenv("F2KG_DEBUG_METRICS", "0").lower() not in ("0", "false", "no")
     SHOW_LABELS = os.getenv("F2KG_DEBUG_SHOW_LABELS", "0").lower() in ("1", "true", "yes")
     SNIP = int(os.getenv("F2KG_DEBUG_SNIP", "300"))
 
