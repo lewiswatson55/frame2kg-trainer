@@ -188,7 +188,7 @@ class Runner:
                 eval_dataset=eval_ds,
                 data_collator=artifacts.collator,
                 compute_metrics=compute_metrics,
-                tokenizer=artifacts.tokenizer,
+                processing_class=artifacts.tokenizer,
                 callbacks=callbacks,
             )
 
