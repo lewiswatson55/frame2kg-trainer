@@ -1,5 +1,6 @@
 from __future__ import annotations
 import os
+import inspect
 from datetime import datetime
 from typing import Any, Dict
 
@@ -111,16 +112,22 @@ class Runner:
                 early_stopping_threshold=threshold,
             ))
 
-        trainer = Seq2SeqTrainer(
-            model=artifacts.model,
-            args=training_args,
-            train_dataset=train_ds,
-            eval_dataset=eval_ds,
-            data_collator=artifacts.collator,
-            compute_metrics=compute_metrics,
-            tokenizer=artifacts.tokenizer,
-            callbacks=callbacks,
-        )
+        trainer_kwargs = {
+            "model": artifacts.model,
+            "args": training_args,
+            "train_dataset": train_ds,
+            "eval_dataset": eval_ds,
+            "data_collator": artifacts.collator,
+            "compute_metrics": compute_metrics,
+            "callbacks": callbacks,
+        }
+        trainer_init_params = inspect.signature(Seq2SeqTrainer.__init__).parameters
+        if "processing_class" in trainer_init_params:
+            trainer_kwargs["processing_class"] = artifacts.processor or artifacts.tokenizer
+        else:
+            trainer_kwargs["tokenizer"] = artifacts.tokenizer
+
+        trainer = Seq2SeqTrainer(**trainer_kwargs)
 
         print("Starting fine‑tuning …")
         trainer.train()
