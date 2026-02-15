@@ -47,7 +47,7 @@ def _post_run_wait_and_shutdown(cfg: Dict[str, Any], *, run_failed: bool) -> Non
     status = "failed or was interrupted" if run_failed else "complete"
     print(
         f"Training {status}. The machine will shut down in {wait_seconds // 60} minutes unless you type "
-        f"'{skip_token}' and press Enter."
+        f"'{skip_token}' and press Enter. This is to save on cloud GPU costs."
     )
     sys.stdout.flush()
 
