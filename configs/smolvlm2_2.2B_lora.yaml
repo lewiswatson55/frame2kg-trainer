@@ -1,5 +1,5 @@
 backend: smolvlm2
-model_id: HuggingFaceTB/SmolVLM2-2.2B-Video-Instruct
+model_id: HuggingFaceTB/SmolVLM2-2.2B-Instruct
 load_in_4bit: false
 lora:
   r: 8
