@@ -9,3 +9,4 @@ PyYAML
 torch
 torchvision
 tqdm
+num2words
