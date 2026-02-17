@@ -4,7 +4,11 @@ from typing import Any, Dict
 from transformers import Seq2SeqTrainingArguments
 
 
-def build_seq2seq_training_args(common: Dict[str, Any], max_new_tokens: int) -> Seq2SeqTrainingArguments:
+def build_seq2seq_training_args(
+    common: Dict[str, Any],
+    max_new_tokens: int,
+    do_eval: bool = True,
+) -> Seq2SeqTrainingArguments:
     arg_names = {f.name for f in fields(Seq2SeqTrainingArguments)}
     kw = {k: v for k, v in common.items() if k in arg_names}
     if "predict_with_generate" in arg_names: kw["predict_with_generate"] = True
@@ -14,15 +18,23 @@ def build_seq2seq_training_args(common: Dict[str, Any], max_new_tokens: int) -> 
     if "output_scores" in arg_names: kw["output_scores"] = False
     eval_key = "evaluation_strategy" if "evaluation_strategy" in arg_names else ("eval_strategy" if "eval_strategy" in arg_names else None)
     if eval_key is not None:
-        kw[eval_key] = "steps"
-        if "save_strategy" in arg_names: kw["save_strategy"] = "steps"
-        if "load_best_model_at_end" in arg_names: kw["load_best_model_at_end"] = True
-        if "metric_for_best_model" in arg_names: kw["metric_for_best_model"] = "edge_F1"
-        if "greater_is_better" in arg_names: kw["greater_is_better"] = True
+        if do_eval:
+            kw[eval_key] = "steps"
+            if "save_strategy" in arg_names: kw["save_strategy"] = "steps"
+            if "load_best_model_at_end" in arg_names: kw["load_best_model_at_end"] = True
+            if "metric_for_best_model" in arg_names: kw["metric_for_best_model"] = "edge_F1"
+            if "greater_is_better" in arg_names: kw["greater_is_better"] = True
+        else:
+            kw[eval_key] = "no"
+            if "load_best_model_at_end" in arg_names: kw["load_best_model_at_end"] = False
+            kw.pop("metric_for_best_model", None); kw.pop("greater_is_better", None)
     else:
         if "load_best_model_at_end" in kw: kw["load_best_model_at_end"] = False
         kw.pop("metric_for_best_model", None); kw.pop("greater_is_better", None)
     args = Seq2SeqTrainingArguments(**kw)
     if not hasattr(args, "predict_with_generate"): setattr(args, "predict_with_generate", True)
-    if not hasattr(args, "evaluation_strategy"): setattr(args, "evaluation_strategy", "no")
+    if not hasattr(args, "evaluation_strategy"):
+        setattr(args, "evaluation_strategy", "no" if not do_eval else "steps")
+    elif not do_eval:
+        setattr(args, "evaluation_strategy", "no")
     return args

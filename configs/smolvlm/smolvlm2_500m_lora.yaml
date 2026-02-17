@@ -1,0 +1,34 @@
+backend: smolvlm2
+model_id: HuggingFaceTB/SmolVLM2-500M-Video-Instruct
+load_in_4bit: false
+lora:
+  r: 8
+  alpha: 16
+  dropout: 0.05
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, down_proj, up_proj]
+
+# training
+seed: 42
+run_name: smolvlm2-500m-frame2kg
+output_dir: ../output
+max_new_tokens: 4098
+lr: 5e-5
+epochs: 3
+per_device_train_bs: 8
+per_device_eval_bs: 2
+grad_acc_steps: 1
+warmup_ratio: 0.03
+weight_decay: 0.01
+logging_steps: 10
+save_steps: 100
+save_total_limit: 2
+eval_steps: 20
+num_workers: 16
+eval_sample_k: 3
+eval_sample_mode: random
+export_merged: false
+skip_eval: true
+
+wandb:
+  project: smolvlm2-500m-frame2kg-proj
+  entity: null
