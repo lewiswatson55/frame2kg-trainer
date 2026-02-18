@@ -78,6 +78,22 @@ class MoondreamProcessor:
             json.dump({"processor_class": "MoondreamProcessor"}, f, ensure_ascii=False, indent=2)
 
 
+def _set_special_token_ids(cfg: Any | None, *, pad_id: int, bos_id: int, eos_id: int) -> None:
+    if cfg is None:
+        return
+    cfg.pad_token_id = int(pad_id)
+    cfg.bos_token_id = int(bos_id)
+    cfg.eos_token_id = int(eos_id)
+
+
+def _ensure_generation_config(owner: Any | None):
+    if owner is None:
+        return None
+    if getattr(owner, "generation_config", None) is None:
+        owner.generation_config = GenerationConfig.from_model_config(owner.config)
+    return owner.generation_config
+
+
 class Moondream2TrainWrapper(nn.Module):
     def __init__(self, core_model: nn.Module, tokenizer, model_id: str, revision: str | None):
         super().__init__()
@@ -104,36 +120,29 @@ class Moondream2TrainWrapper(nn.Module):
         self.bos_token_id = int(bos_id if bos_id is not None else eos_id)
         self.eos_token_id = int(eos_id if eos_id is not None else self.bos_token_id)
         self.pad_token_id = int(tokenizer.pad_token_id if tokenizer.pad_token_id is not None else self.bos_token_id)
-        if self.generation_config is None:
-            try:
-                self.generation_config = GenerationConfig.from_model_config(
-                    getattr(self.text_model, "config", self.config)
-                )
-            except Exception:
-                self.generation_config = None
         self._sync_special_token_ids()
 
-    def _set_special_token_ids(self, cfg: Any | None) -> None:
-        if cfg is None:
-            return
-        for key, value in (
-            ("pad_token_id", self.pad_token_id),
-            ("bos_token_id", self.bos_token_id),
-            ("eos_token_id", self.eos_token_id),
-        ):
-            try:
-                setattr(cfg, key, int(value))
-            except Exception:
-                pass
-
     def _sync_special_token_ids(self) -> None:
-        self._set_special_token_ids(self.config)
-        self._set_special_token_ids(getattr(self.config, "text_config", None))
-        self._set_special_token_ids(getattr(self.text_model, "config", None))
-        self._set_special_token_ids(getattr(self.text_model, "generation_config", None))
-        self._set_special_token_ids(self.generation_config)
-        if getattr(self.generation_config, "do_sample", None) is not None:
-            self.generation_config.do_sample = False
+        phi_model = getattr(getattr(self.text_model, "base_model", None), "model", None)
+        cfgs = [
+            self.config,
+            getattr(self.config, "text_config", None),
+            getattr(self.text_model, "config", None),
+            getattr(phi_model, "config", None),
+        ]
+        for cfg in cfgs:
+            _set_special_token_ids(cfg, pad_id=self.pad_token_id, bos_id=self.bos_token_id, eos_id=self.eos_token_id)
+
+        owners = [self, self.text_model, phi_model]
+        for owner in owners:
+            gen_cfg = _ensure_generation_config(owner)
+            _set_special_token_ids(
+                gen_cfg, pad_id=self.pad_token_id, bos_id=self.bos_token_id, eos_id=self.eos_token_id
+            )
+            if gen_cfg is not None:
+                gen_cfg.do_sample = False
+
+        self.generation_config = _ensure_generation_config(self.text_model)
 
     @property
     def device(self) -> torch.device:
@@ -400,15 +409,7 @@ class Moondream2Backend(VLMBackend):
 
     def load(self, cfg: Dict[str, Any]) -> BackendArtifacts:
         model_id = cfg.get("model_id", "vikhyatk/moondream2")
-        revision_raw = cfg.get("revision", "2024-08-26")
-        if revision_raw is None:
-            revision = "2024-08-26"
-        elif isinstance(revision_raw, str):
-            revision = revision_raw
-        elif hasattr(revision_raw, "isoformat"):
-            revision = str(revision_raw.isoformat())
-        else:
-            revision = str(revision_raw)
+        revision = str(cfg.get("revision", "2024-08-26"))
         trust_remote_code = bool(cfg.get("trust_remote_code", True))
         attn_impl = cfg.get("attn_implementation", None)
         lora_cfg: Dict[str, Any] = cfg.get("lora", {})
@@ -441,7 +442,7 @@ class Moondream2Backend(VLMBackend):
                 {
                     "quantization_config": bnb_cfg,
                     "device_map": "auto",
-                    "torch_dtype": torch.bfloat16,
+                    "dtype": torch.bfloat16,
                 }
             )
         else:
@@ -450,13 +451,9 @@ class Moondream2Backend(VLMBackend):
                 if torch.cuda.is_available()
                 else (torch.float16 if torch.backends.mps.is_available() else torch.float32)
             )
-            model_kwargs["torch_dtype"] = dtype
+            model_kwargs["dtype"] = dtype
 
-        try:
-            core_model = AutoModelForCausalLM.from_pretrained(model_id, **model_kwargs)
-        except TypeError:
-            model_kwargs.pop("attn_implementation", None)
-            core_model = AutoModelForCausalLM.from_pretrained(model_id, **model_kwargs)
+        core_model = AutoModelForCausalLM.from_pretrained(model_id, **model_kwargs)
 
         if not hasattr(core_model, "text_model"):
             raise RuntimeError(
@@ -496,10 +493,8 @@ class Moondream2Backend(VLMBackend):
             model_id=model_id,
             revision=revision,
         )
-        wrapper.text_model = text_model
-        wrapper.generation_config = getattr(text_model, "generation_config", None)
-        if hasattr(text_model, "gradient_checkpointing_enable"):
-            text_model.gradient_checkpointing_enable()
+        if hasattr(wrapper.text_model, "gradient_checkpointing_enable"):
+            wrapper.text_model.gradient_checkpointing_enable()
 
         processor = MoondreamProcessor(tokenizer)
         collator = MoondreamDataCollator(processor)
