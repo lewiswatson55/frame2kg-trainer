@@ -1,6 +1,6 @@
 backend: moondream2
 model_id: vikhyatk/moondream2
-revision: 2024-08-26
+revision: "2024-08-26"
 trust_remote_code: true
 load_in_4bit: false
 lora:

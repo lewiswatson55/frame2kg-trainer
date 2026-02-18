@@ -368,7 +368,15 @@ class Moondream2Backend(VLMBackend):
 
     def load(self, cfg: Dict[str, Any]) -> BackendArtifacts:
         model_id = cfg.get("model_id", "vikhyatk/moondream2")
-        revision = cfg.get("revision", "2024-08-26")
+        revision_raw = cfg.get("revision", "2024-08-26")
+        if revision_raw is None:
+            revision = "2024-08-26"
+        elif isinstance(revision_raw, str):
+            revision = revision_raw
+        elif hasattr(revision_raw, "isoformat"):
+            revision = str(revision_raw.isoformat())
+        else:
+            revision = str(revision_raw)
         trust_remote_code = bool(cfg.get("trust_remote_code", True))
         attn_impl = cfg.get("attn_implementation", None)
         lora_cfg: Dict[str, Any] = cfg.get("lora", {})
