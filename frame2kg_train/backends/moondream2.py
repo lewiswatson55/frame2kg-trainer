@@ -86,12 +86,16 @@ def _set_special_token_ids(cfg: Any | None, *, pad_id: int, bos_id: int, eos_id:
     cfg.eos_token_id = int(eos_id)
 
 
-def _ensure_generation_config(owner: Any | None):
+def _ensure_generation_config(owner: Any | None, *, pad_id: int, bos_id: int, eos_id: int):
     if owner is None:
         return None
-    if getattr(owner, "generation_config", None) is None:
-        owner.generation_config = GenerationConfig.from_model_config(owner.config)
-    return owner.generation_config
+    gen_cfg = getattr(owner, "generation_config", None)
+    if gen_cfg is None:
+        gen_cfg = GenerationConfig()
+        owner.generation_config = gen_cfg
+    _set_special_token_ids(gen_cfg, pad_id=pad_id, bos_id=bos_id, eos_id=eos_id)
+    gen_cfg.do_sample = False
+    return gen_cfg
 
 
 class Moondream2TrainWrapper(nn.Module):
@@ -135,14 +139,19 @@ class Moondream2TrainWrapper(nn.Module):
 
         owners = [self, self.text_model, phi_model]
         for owner in owners:
-            gen_cfg = _ensure_generation_config(owner)
-            _set_special_token_ids(
-                gen_cfg, pad_id=self.pad_token_id, bos_id=self.bos_token_id, eos_id=self.eos_token_id
+            _ensure_generation_config(
+                owner,
+                pad_id=self.pad_token_id,
+                bos_id=self.bos_token_id,
+                eos_id=self.eos_token_id,
             )
-            if gen_cfg is not None:
-                gen_cfg.do_sample = False
 
-        self.generation_config = _ensure_generation_config(self.text_model)
+        self.generation_config = _ensure_generation_config(
+            self.text_model,
+            pad_id=self.pad_token_id,
+            bos_id=self.bos_token_id,
+            eos_id=self.eos_token_id,
+        )
 
     @property
     def device(self) -> torch.device:
