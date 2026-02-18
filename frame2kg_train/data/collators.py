@@ -158,3 +158,50 @@ class SmolVLMDataCollator:
         # Dummy labels to satisfy Trainer signature; metrics ignore these
         prompt_inputs["labels"] = torch.full_like(prompt_inputs["input_ids"], -100)
         return prompt_inputs
+
+
+@dataclass
+class MoondreamDataCollator:
+    proc: Any
+
+    def _to_pil(self, x):
+        if isinstance(x, str):
+            return Image.open(x).convert("RGB")
+        return x
+
+    def __call__(self, batch: List[Dict[str, Any]]):
+        images = [self._to_pil(b["image"]) for b in batch]
+        gold_graphs = [b["graph"] for b in batch]
+        mode = batch[0].get("mode", "train")
+
+        def _to_json_text(x):
+            import json
+
+            return x if isinstance(x, str) else json.dumps(x, ensure_ascii=False, separators=(",", ":"))
+
+        prompts = []
+        answers = []
+        for img, g in zip(images, gold_graphs):
+            chat = [
+                {"role": "system", "content": [{"type": "text", "text": SYSTEM_PROMPT}]},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "image", "image": img},
+                        {"type": "text", "text": "Extract data in JSON."},
+                    ],
+                },
+                {"role": "assistant", "content": [{"type": "text", "text": _to_json_text(g)}]},
+            ]
+            prompts.append(self.proc.apply_chat_template(chat[:2], tokenize=False, add_generation_prompt=True))
+            answers.append(_to_json_text(g))
+
+        out: Dict[str, Any] = {
+            "images": images,
+            "prompt_texts": prompts,
+            "answer_texts": answers,
+        }
+        if mode != "train":
+            # Dummy labels keep Trainer's eval path active; JSON metrics use attached GT strings.
+            out["labels"] = torch.full((len(batch), 1), -100, dtype=torch.long)
+        return out

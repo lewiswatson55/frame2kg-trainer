@@ -5,6 +5,7 @@ peft
 bitsandbytes; platform_system == 'Linux'
 wandb
 num2words
+einops
 Pillow
 PyYAML
 torch

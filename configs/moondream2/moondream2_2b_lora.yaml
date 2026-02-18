@@ -1,0 +1,36 @@
+backend: moondream2
+model_id: vikhyatk/moondream2
+revision: 2024-08-26
+trust_remote_code: true
+load_in_4bit: false
+lora:
+  r: 8
+  alpha: 16
+  dropout: 0.05
+  target_modules: [Wqkv, out_proj, fc1, fc2] # QVO only closer match like qwen runs would be [Wqkv, out_proj]
+
+# training
+seed: 42
+run_name: moondream2-2b-frame2kg
+output_dir: ../output
+max_new_tokens: 1024
+lr: 5e-5
+epochs: 3
+per_device_train_bs: 1
+per_device_eval_bs: 1
+grad_acc_steps: 8
+warmup_ratio: 0.03
+weight_decay: 0.01
+logging_steps: 10
+save_steps: 100
+save_total_limit: 2
+eval_steps: 20
+num_workers: 8
+eval_sample_k: 3
+eval_sample_mode: random
+export_merged: false
+skip_eval: true
+
+wandb:
+  project: moondream2-2b-frame2kg-proj
+  entity: null
