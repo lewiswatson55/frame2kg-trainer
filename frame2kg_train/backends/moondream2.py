@@ -9,7 +9,7 @@ import torch
 import torch.nn as nn
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from PIL import Image
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, GenerationConfig
 
 from frame2kg_train.backends.base import BackendArtifacts, VLMBackend
 from frame2kg_train.data.collators import MoondreamDataCollator
@@ -102,7 +102,38 @@ class Moondream2TrainWrapper(nn.Module):
         if bos_id is None and eos_id is None:
             raise RuntimeError("Tokenizer must define at least one of bos_token_id or eos_token_id.")
         self.bos_token_id = int(bos_id if bos_id is not None else eos_id)
+        self.eos_token_id = int(eos_id if eos_id is not None else self.bos_token_id)
         self.pad_token_id = int(tokenizer.pad_token_id if tokenizer.pad_token_id is not None else self.bos_token_id)
+        if self.generation_config is None:
+            try:
+                self.generation_config = GenerationConfig.from_model_config(
+                    getattr(self.text_model, "config", self.config)
+                )
+            except Exception:
+                self.generation_config = None
+        self._sync_special_token_ids()
+
+    def _set_special_token_ids(self, cfg: Any | None) -> None:
+        if cfg is None:
+            return
+        for key, value in (
+            ("pad_token_id", self.pad_token_id),
+            ("bos_token_id", self.bos_token_id),
+            ("eos_token_id", self.eos_token_id),
+        ):
+            try:
+                setattr(cfg, key, int(value))
+            except Exception:
+                pass
+
+    def _sync_special_token_ids(self) -> None:
+        self._set_special_token_ids(self.config)
+        self._set_special_token_ids(getattr(self.config, "text_config", None))
+        self._set_special_token_ids(getattr(self.text_model, "config", None))
+        self._set_special_token_ids(getattr(self.text_model, "generation_config", None))
+        self._set_special_token_ids(self.generation_config)
+        if getattr(self.generation_config, "do_sample", None) is not None:
+            self.generation_config.do_sample = False
 
     @property
     def device(self) -> torch.device:
@@ -359,6 +390,7 @@ class Moondream2TrainWrapper(nn.Module):
         self.core_model.text_model = merged_text
         self.text_model = merged_text
         self.generation_config = getattr(self.text_model, "generation_config", None)
+        self._sync_special_token_ids()
         return self
 
 
