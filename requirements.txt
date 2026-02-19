@@ -10,3 +10,4 @@ PyYAML
 torch
 torchvision
 tqdm
+trl

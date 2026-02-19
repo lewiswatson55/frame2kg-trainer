@@ -15,6 +15,9 @@ SYSTEM_PROMPT = (
     'The first character must be "{", and the last must be "}".'
 )
 
+def _to_json_text(x):
+    import json
+    return x if isinstance(x, str) else json.dumps(x, ensure_ascii=False, separators=(",", ":"))
 
 @dataclass
 class QwenVLDataCollator:
@@ -41,10 +44,6 @@ class QwenVLDataCollator:
         images = [self._to_pil(b["image"]) for b in batch]
         gold_graphs = [b["graph"] for b in batch]
         mode = batch[0].get("mode", "train")
-
-        def _to_json_text(x):
-            import json
-            return x if isinstance(x, str) else json.dumps(x, ensure_ascii=False, separators=(",", ":"))
 
         chats = []
         for img, g in zip(images, gold_graphs):
@@ -112,11 +111,6 @@ class SmolVLMDataCollator:
         gold_graphs = [b["graph"] for b in batch]
         mode = batch[0].get("mode", "train")
 
-        def _to_json_text(x):
-            import json
-
-            return x if isinstance(x, str) else json.dumps(x, ensure_ascii=False, separators=(",", ":"))
-
         chats = []
         for img, g in zip(images, gold_graphs):
             chats.append(
@@ -158,3 +152,55 @@ class SmolVLMDataCollator:
         # Dummy labels to satisfy Trainer signature; metrics ignore these
         prompt_inputs["labels"] = torch.full_like(prompt_inputs["input_ids"], -100)
         return prompt_inputs
+
+@dataclass
+class QwenVLDPODataCollator:
+    proc: Qwen2_5_VLProcessor
+
+    def __post_init__(self):
+        self.pad_id = self.proc.tokenizer.pad_token_id
+
+    def _to_pil(self, x):
+        if isinstance(x, str):
+            return Image.open(x).convert("RGB")
+        return x
+
+    def _build_dialogue(self, image, user_prompt: str, assistant_text: str):
+        return [
+            {"role": "system", "content": [{"type": "text", "text": SYSTEM_PROMPT}]},
+            {"role": "user", "content": [{"type": "image", "image": image}, {"type": "text", "text": user_prompt}]},
+            {"role": "assistant", "content": [{"type": "text", "text": _to_json_text(assistant_text)}]},
+        ]
+
+    def _tokenize_with_prompt_mask(self, dialogs):
+        full_texts = [self.proc.apply_chat_template(c, tokenize=False) for c in dialogs]
+        prompts = [self.proc.apply_chat_template(c[:2], tokenize=False, add_generation_prompt=True) for c in dialogs]
+        images = [c[1]["content"][0]["image"] for c in dialogs]
+
+        inputs = self.proc(text=full_texts, images=images, return_tensors="pt", padding=True)
+        prompt_inputs = self.proc(text=prompts, images=images, return_tensors="pt", padding=True)
+
+        labels = inputs["input_ids"].clone()
+        prompt_lens = (prompt_inputs["input_ids"] != self.pad_id).sum(dim=1)
+        for i, cutoff in enumerate(prompt_lens.tolist()):
+            labels[i, :cutoff] = -100
+        labels[inputs["input_ids"] == self.pad_id] = -100
+        inputs["labels"] = labels
+        return inputs
+
+    def __call__(self, batch: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
+        images = [self._to_pil(b["image"]) for b in batch]
+        prompts = [b.get("prompt", "Extract data in JSON.") for b in batch]
+
+        chosen_dialogs = [self._build_dialogue(img, prompt, b["chosen"]) for img, prompt, b in zip(images, prompts, batch)]
+        rejected_dialogs = [self._build_dialogue(img, prompt, b["rejected"]) for img, prompt, b in zip(images, prompts, batch)]
+
+        chosen = self._tokenize_with_prompt_mask(chosen_dialogs)
+        rejected = self._tokenize_with_prompt_mask(rejected_dialogs)
+
+        out: Dict[str, torch.Tensor] = {}
+        for key, value in chosen.items():
+            out[f"chosen_{key}"] = value
+        for key, value in rejected.items():
+            out[f"rejected_{key}"] = value
+        return out
