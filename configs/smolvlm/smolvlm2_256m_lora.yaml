@@ -1,3 +1,4 @@
+training_repo: "https://github.com/lewiswatson55/frame2kg-trainer"
 backend: smolvlm2
 model_id: HuggingFaceTB/SmolVLM2-256M-Video-Instruct
 load_in_4bit: false

@@ -25,6 +25,12 @@ python scripts/train.py --config configs/smolvlm2_500m_lora.yaml --overrides wan
 Environment variables:
 - `WANDB_API_KEY` must be set if logging to Weights & Biases.
 
+## Reproducibility
+
+Reproducibility in both research and implementation is essential. To support this, we ask that any published models include the training `.yaml` configuration file to improve traceability. An example can be found [here](https://huggingface.co/lewiswatson/frame2kg-qwen2_5vl-3b-qkvo-lora/blob/main/frame2kg_training_config.yaml).
+
+In addition, the otherwise unused `training_repo` key should be updated to point to a fork or repository containing your changes.
+
 ### Evaluation
 
 For evaluation see the [Frame2KG Evaluation Toolkit](https://anonymous.4open.science/r/frame2kg_eval_toolkit/)
