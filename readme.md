@@ -12,7 +12,7 @@ python -m venv .venv && source .venv/bin/activate && pip install -e .
 
 ### Training
 
-This scaffold includes a training entrypoint and example configs for Qwen2.5-VL and SmolVLM2 with LoRA. You must have access to the referenced model checkpoints.
+This scaffold includes a training entrypoint and example configs for Qwen2.5-VL, Qwen3-VL, and SmolVLM2 with LoRA. You must have access to the referenced model checkpoints.
 
 ```bash
 python scripts/train.py --config configs/qwen25_lora_a100.yaml
@@ -47,7 +47,7 @@ python scripts/train.py \
 ```
 
 Common keys:
-- `backend`: which implementation to use (e.g., `qwen25_vl` or `smolvlm2`).
+- `backend`: which implementation to use (e.g., `qwen25_vl`, `qwen3_vl`, or `smolvlm2`).
 - `model_id`: HF model identifier.
 - `load_in_4bit`: optional 4-bit loading path (CUDA only).
 - `attn_implementation`: optional attention backend override (for example `flash_attention_2`).
@@ -61,6 +61,7 @@ Common keys:
 - `frame2kg_train/backends/`
   - `base.py`: Defines the `VLMBackend` Protocol, `BackendArtifacts` container, and `Collator` signature used by the Trainer.
   - `qwen25_vl.py`: Working backend for Qwen2.5‑VL (loads model/processor, optional 4‑bit quant, optional LoRA, and provides a matching collator).
+  - `qwen3_vl.py`: Working backend for Qwen3‑VL (native Qwen3 classes with compatibility fallbacks, optional 4‑bit quant, optional LoRA, and Qwen-style collator reuse).
   - `smolvlm2.py`: SmolVLM2 backend (AutoProcessor + AutoModelForImageTextToText, optional 4-bit quant, optional LoRA, and Smol-specific generation).
   - `blip2.py`, `florence2.py`: Placeholders showing how additional backends would slot in.
 
@@ -84,6 +85,7 @@ Common keys:
 ## Currently working out of the box
 
 - A fully wired Qwen2.5‑VL backend with optional 4‑bit loading and LoRA adapters (via PEFT).
+- A fully wired Qwen3‑VL backend with optional 4‑bit loading and LoRA adapters (via PEFT).
 - A fully wired SmolVLM2 backend with optional 4‑bit loading and LoRA adapters (via PEFT).
 - A Qwen‑compatible collator that constructs chat prompts and masks labels for supervised fine‑tuning.
 - A SmolVLM-compatible collator that preserves the same system/user prompt contract and masking scheme.
