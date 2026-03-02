@@ -18,9 +18,9 @@ output_dir: ../output
 max_new_tokens: 4098
 lr: 5e-5
 epochs: 3
-per_device_train_bs: 1
+per_device_train_bs: 8
 per_device_eval_bs: 2
-grad_acc_steps: 8
+grad_acc_steps: 1
 warmup_ratio: 0.03
 weight_decay: 0.01
 logging_steps: 10
