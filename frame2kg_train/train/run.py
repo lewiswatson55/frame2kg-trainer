@@ -149,7 +149,7 @@ class Runner:
                 "logging_dir": os.path.join(run_dir, "logs"),
                 "logging_steps": int(self.cfg.get("logging_steps", 10)),
                 "logging_first_step": True,
-                "save_steps": int(self.cfg.get("save_steps", 20)),
+                "save_steps": int(self.cfg.get("save_steps", 100)),
                 "save_total_limit": int(self.cfg.get("save_total_limit", 2)),
                 "load_best_model_at_end": True,
                 "metric_for_best_model": best_metric,

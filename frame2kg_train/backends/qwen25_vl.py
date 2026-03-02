@@ -69,7 +69,11 @@ class Qwen25VLBackend(VLMBackend):
                 }
             )
         else:
-            dtype = torch.float16 if torch.backends.mps.is_available() else torch.float32
+            dtype = (
+                torch.bfloat16
+                if torch.cuda.is_available()
+                else (torch.float16 if torch.backends.mps.is_available() else torch.float32)
+            )
             model_kwargs["torch_dtype"] = dtype
 
         try:

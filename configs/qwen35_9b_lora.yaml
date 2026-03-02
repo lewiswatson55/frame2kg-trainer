@@ -20,11 +20,11 @@ lr: 5e-5
 epochs: 3
 per_device_train_bs: 1
 per_device_eval_bs: 1
-grad_acc_steps: 2
+grad_acc_steps: 8
 warmup_ratio: 0.03
 weight_decay: 0.01
 logging_steps: 10
-save_steps: 20
+save_steps: 100
 save_total_limit: 2
 eval_steps: 20
 num_workers: 16
