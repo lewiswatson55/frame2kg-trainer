@@ -54,6 +54,7 @@ class Qwen25VLBackend(VLMBackend):
         if attn_impl:
             model_kwargs["_attn_implementation"] = str(attn_impl)
 
+        precision_path = "unknown"
         if load_in_4bit and torch.cuda.is_available():
             bnb_cfg = BitsAndBytesConfig(
                 load_in_4bit=True,
@@ -68,6 +69,7 @@ class Qwen25VLBackend(VLMBackend):
                     "torch_dtype": torch.bfloat16,
                 }
             )
+            precision_path = "4-bit NF4 (compute_dtype=bfloat16)"
         else:
             dtype = (
                 torch.bfloat16
@@ -75,6 +77,13 @@ class Qwen25VLBackend(VLMBackend):
                 else (torch.float16 if torch.backends.mps.is_available() else torch.float32)
             )
             model_kwargs["torch_dtype"] = dtype
+            precision_path = f"full-precision torch_dtype={dtype}"
+
+        print(
+            f"[backend:{self.name}] model_id={model_id} "
+            f"cuda={torch.cuda.is_available()} mps={torch.backends.mps.is_available()} "
+            f"load_in_4bit={load_in_4bit} selected_precision={precision_path}"
+        )
 
         try:
             model = AutoModelForImageTextToText.from_pretrained(
@@ -98,6 +107,8 @@ class Qwen25VLBackend(VLMBackend):
                 trust_remote_code=trust_remote_code,
                 **model_kwargs,
             )
+        model_param_dtype = next(model.parameters()).dtype
+        print(f"[backend:{self.name}] loaded model parameter dtype={model_param_dtype}")
 
         pad_id = proc.tokenizer.pad_token_id
         model.generation_config.pad_token_id = pad_id
