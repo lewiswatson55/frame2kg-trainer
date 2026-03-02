@@ -133,6 +133,8 @@ class Runner:
 
             # Trainer bits
             max_new = int(self.cfg.get("max_new_tokens", 4098))
+            generation_prompt_buffer = int(self.cfg.get("generation_prompt_buffer", 2048))
+            generation_max_length = int(self.cfg.get("generation_max_length", max_new + generation_prompt_buffer))
             best_metric = str(self.cfg.get("early_stopping_metric", "edge_F1"))
             common = {
                 "output_dir": ckpt_dir,
@@ -164,9 +166,8 @@ class Runner:
                 "gradient_checkpointing": True,
                 "eval_accumulation_steps": int(self.cfg.get("eval_accumulation_steps", 4)),
                 "eval_steps": int(self.cfg.get("eval_steps", 20)),
-                # Passed through to args builder for legacy Trainer compatibility
-                "generation_prompt_buffer": int(self.cfg.get("generation_prompt_buffer", 2048)),
-                "generation_max_length": self.cfg.get("generation_max_length", None),
+                "generation_prompt_buffer": generation_prompt_buffer,
+                "generation_max_length": generation_max_length,
             }
             training_args = build_seq2seq_training_args(common, max_new_tokens=max_new, do_eval=not skip_eval)
 
