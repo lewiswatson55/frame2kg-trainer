@@ -11,8 +11,12 @@ def build_seq2seq_training_args(
 ) -> Seq2SeqTrainingArguments:
     arg_names = {f.name for f in fields(Seq2SeqTrainingArguments)}
     kw = {k: v for k, v in common.items() if k in arg_names}
+    prompt_buffer = int(common.get("generation_prompt_buffer", 2048))
+    fallback_max_length = int(common.get("generation_max_length", max_new_tokens + prompt_buffer))
+
     if "predict_with_generate" in arg_names: kw["predict_with_generate"] = True
     if "generation_max_new_tokens" in arg_names: kw["generation_max_new_tokens"] = max_new_tokens
+    if "generation_max_length" in arg_names: kw["generation_max_length"] = fallback_max_length
     if "generation_num_beams" in arg_names: kw["generation_num_beams"] = 1
     if "return_dict_in_generate" in arg_names: kw["return_dict_in_generate"] = False
     if "output_scores" in arg_names: kw["output_scores"] = False
@@ -33,6 +37,8 @@ def build_seq2seq_training_args(
         kw.pop("metric_for_best_model", None); kw.pop("greater_is_better", None)
     args = Seq2SeqTrainingArguments(**kw)
     if not hasattr(args, "predict_with_generate"): setattr(args, "predict_with_generate", True)
+    if hasattr(args, "generation_max_length") and getattr(args, "generation_max_length", None) is None:
+        setattr(args, "generation_max_length", fallback_max_length)
     if not hasattr(args, "evaluation_strategy"):
         setattr(args, "evaluation_strategy", "no" if not do_eval else "steps")
     elif not do_eval:

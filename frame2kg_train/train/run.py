@@ -164,6 +164,9 @@ class Runner:
                 "gradient_checkpointing": True,
                 "eval_accumulation_steps": int(self.cfg.get("eval_accumulation_steps", 4)),
                 "eval_steps": int(self.cfg.get("eval_steps", 20)),
+                # Passed through to args builder for legacy Trainer compatibility
+                "generation_prompt_buffer": int(self.cfg.get("generation_prompt_buffer", 2048)),
+                "generation_max_length": self.cfg.get("generation_max_length", None),
             }
             training_args = build_seq2seq_training_args(common, max_new_tokens=max_new, do_eval=not skip_eval)
 
