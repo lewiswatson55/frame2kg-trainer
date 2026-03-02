@@ -5,9 +5,9 @@ from typing import Any, Dict, List
 import torch
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from transformers import (
+    AutoModelForImageTextToText,
+    AutoProcessor,
     BitsAndBytesConfig,
-    Qwen2_5_VLForConditionalGeneration,
-    Qwen2_5_VLProcessor,
 )
 from PIL import Image
 
@@ -25,21 +25,35 @@ class Qwen25VLBackend(VLMBackend):
         max_pixels = int(cfg.get("max_pixels", 1120 * 28 * 28))
         lora_cfg: Dict[str, Any] = cfg.get("lora", {})
         load_in_4bit = bool(cfg.get("load_in_4bit", torch.cuda.is_available()))
+        trust_remote_code = bool(cfg.get("trust_remote_code", False))
+        attn_impl = cfg.get("attn_implementation", None)
+        disable_thinking = bool(cfg.get("disable_thinking", True))
 
         # Processor
         try:
-            proc = Qwen2_5_VLProcessor.from_pretrained(
-                model_id, min_pixels=min_pixels, max_pixels=max_pixels, use_fast=True
+            proc = AutoProcessor.from_pretrained(
+                model_id,
+                min_pixels=min_pixels,
+                max_pixels=max_pixels,
+                use_fast=True,
+                trust_remote_code=trust_remote_code,
             )
         except TypeError:
-            proc = Qwen2_5_VLProcessor.from_pretrained(
-                model_id, min_pixels=min_pixels, max_pixels=max_pixels
+            proc = AutoProcessor.from_pretrained(
+                model_id,
+                min_pixels=min_pixels,
+                max_pixels=max_pixels,
+                trust_remote_code=trust_remote_code,
             )
         if proc.tokenizer.pad_token is None:
             proc.tokenizer.pad_token = proc.tokenizer.eos_token
         proc.tokenizer.padding_side = "left"
 
         # Model
+        model_kwargs: Dict[str, Any] = {}
+        if attn_impl:
+            model_kwargs["_attn_implementation"] = str(attn_impl)
+
         if load_in_4bit and torch.cuda.is_available():
             bnb_cfg = BitsAndBytesConfig(
                 load_in_4bit=True,
@@ -47,15 +61,39 @@ class Qwen25VLBackend(VLMBackend):
                 bnb_4bit_quant_type="nf4",
                 bnb_4bit_compute_dtype=torch.bfloat16,
             )
-            model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-                model_id,
-                device_map="auto",
-                quantization_config=bnb_cfg,
-                torch_dtype=torch.bfloat16,
+            model_kwargs.update(
+                {
+                    "device_map": "auto",
+                    "quantization_config": bnb_cfg,
+                    "torch_dtype": torch.bfloat16,
+                }
             )
         else:
             dtype = torch.float16 if torch.backends.mps.is_available() else torch.float32
-            model = Qwen2_5_VLForConditionalGeneration.from_pretrained(model_id, torch_dtype=dtype)
+            model_kwargs["torch_dtype"] = dtype
+
+        try:
+            model = AutoModelForImageTextToText.from_pretrained(
+                model_id,
+                trust_remote_code=trust_remote_code,
+                **model_kwargs,
+            )
+        except ValueError as e:
+            msg = str(e)
+            if "model type `qwen3_5`" in msg and "does not recognize this architecture" in msg:
+                raise RuntimeError(
+                    "This transformers version does not recognize Qwen3.5 model_type `qwen3_5` yet. "
+                    "Install a newer transformers build (Qwen docs currently reference main/dev builds) "
+                    "or use a Qwen2.5/Qwen3-VL checkpoint."
+                ) from e
+            raise
+        except TypeError:
+            model_kwargs.pop("_attn_implementation", None)
+            model = AutoModelForImageTextToText.from_pretrained(
+                model_id,
+                trust_remote_code=trust_remote_code,
+                **model_kwargs,
+            )
 
         pad_id = proc.tokenizer.pad_token_id
         model.generation_config.pad_token_id = pad_id
@@ -66,7 +104,10 @@ class Qwen25VLBackend(VLMBackend):
 
         # Optional LoRA
         if lora_cfg:
-            model = prepare_model_for_kbit_training(model)
+            if load_in_4bit and torch.cuda.is_available():
+                model = prepare_model_for_kbit_training(model)
+            elif hasattr(model, "enable_input_require_grads"):
+                model.enable_input_require_grads()
             peft = LoraConfig(
                 r=int(lora_cfg.get("r", 8)),
                 lora_alpha=int(lora_cfg.get("alpha", 16)),
@@ -77,7 +118,7 @@ class Qwen25VLBackend(VLMBackend):
             )
             model = get_peft_model(model, peft)
 
-        collator = QwenVLDataCollator(proc)
+        collator = QwenVLDataCollator(proc, disable_thinking=disable_thinking)
         return BackendArtifacts(model=model, tokenizer=proc.tokenizer, processor=proc, collator=collator)
 
     def default_lora_target_modules(self) -> List[str]:
@@ -94,5 +135,9 @@ class Qwen25VLBackend(VLMBackend):
             image = Image.open(image).convert("RGB")
         inputs = proc(text=[prompt], images=[image], return_tensors="pt", padding=True)
         inputs = {k: v.to(artifacts.model.device) for k, v in inputs.items() if hasattr(v, "to")}
+        prompt_len = inputs["input_ids"].shape[1]
         gen = artifacts.model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
-        return proc.tokenizer.batch_decode(gen, skip_special_tokens=True)[0]
+        gen_only = gen[:, prompt_len:] if gen.shape[1] > prompt_len else gen
+        return proc.tokenizer.batch_decode(
+            gen_only, skip_special_tokens=True, clean_up_tokenization_spaces=False
+        )[0].strip()

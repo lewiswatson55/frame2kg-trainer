@@ -10,6 +10,8 @@ from frame2kg_train.backends.smolvlm2 import SmolVLM2Backend
 
 _REGISTRY: Dict[str, VLMBackend] = {
     "qwen25_vl": Qwen25VLBackend(),
+    "qwen3_vl": Qwen25VLBackend(),
+    "qwen35_vl": Qwen25VLBackend(),
     "smolvlm2": SmolVLM2Backend(),
     "blip2": BLIP2Backend(),
     "florence2": Florence2Backend(),

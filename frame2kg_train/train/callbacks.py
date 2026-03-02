@@ -99,9 +99,14 @@ class CustomWandbCallback(TrainerCallback):
                     ],
                 },
             ]
-            user_prompt = self.artifacts.processor.apply_chat_template(
-                chat, tokenize=False, add_generation_prompt=True
-            )
+            try:
+                user_prompt = self.artifacts.processor.apply_chat_template(
+                    chat, tokenize=False, add_generation_prompt=True, enable_thinking=False
+                )
+            except TypeError:
+                user_prompt = self.artifacts.processor.apply_chat_template(
+                    chat, tokenize=False, add_generation_prompt=True
+                )
             pred_txt = self.backend.generate_text(
                 self.artifacts, img, user_prompt, self.max_new_tokens
             )

@@ -4,7 +4,6 @@ from typing import Any, Dict, List
 
 import torch
 from PIL import Image
-from transformers import Qwen2_5_VLProcessor
 
 SYSTEM_PROMPT = (
     'You are a VLM that outputs ONLY a single, strict JSON object with exactly the keys "nodes" and "edges". '
@@ -16,15 +15,31 @@ SYSTEM_PROMPT = (
 )
 
 
+def _apply_chat_template(proc: Any, chat: List[Dict[str, Any]], *, add_generation_prompt: bool, disable_thinking: bool) -> str:
+    kwargs: Dict[str, Any] = {
+        "tokenize": False,
+        "add_generation_prompt": add_generation_prompt,
+    }
+    if disable_thinking:
+        kwargs["enable_thinking"] = False
+    try:
+        return proc.apply_chat_template(chat, **kwargs)
+    except TypeError:
+        kwargs.pop("enable_thinking", None)
+        return proc.apply_chat_template(chat, **kwargs)
+
+
 @dataclass
 class QwenVLDataCollator:
-    proc: Qwen2_5_VLProcessor
+    proc: Any
+    disable_thinking: bool = True
 
     def __post_init__(self):
         self.pad_id = self.proc.tokenizer.pad_token_id
         special_tokens = [
             "<|im_start|>", "<|im_end|>", "<|endoftext|>",
             "<|vision_start|>", "<|vision_end|>", "<|image_pad|>", "<|video_pad|>",
+            "<think>", "</think>",
         ]
         self.special_ids = set()
         for tok in special_tokens:
@@ -54,8 +69,24 @@ class QwenVLDataCollator:
                 {"role": "assistant", "content": [{"type": "text", "text": _to_json_text(g)}]},
             ])
 
-        full_texts = [self.proc.apply_chat_template(c, tokenize=False) for c in chats]
-        prompts = [self.proc.apply_chat_template(c[:2], tokenize=False, add_generation_prompt=True) for c in chats]
+        full_texts = [
+            _apply_chat_template(
+                self.proc,
+                c,
+                add_generation_prompt=False,
+                disable_thinking=self.disable_thinking,
+            )
+            for c in chats
+        ]
+        prompts = [
+            _apply_chat_template(
+                self.proc,
+                c[:2],
+                add_generation_prompt=True,
+                disable_thinking=self.disable_thinking,
+            )
+            for c in chats
+        ]
 
         if mode == "train":
             inputs = self.proc(text=full_texts, images=[c[1]["content"][0]["image"] for c in chats], return_tensors="pt", padding=True)

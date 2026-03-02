@@ -12,10 +12,14 @@ python -m venv .venv && source .venv/bin/activate && pip install -e .
 
 ### Training
 
-This scaffold includes a training entrypoint and example configs for Qwen2.5-VL and SmolVLM2 with LoRA. You must have access to the referenced model checkpoints.
+This scaffold includes a training entrypoint and example configs for Qwen (2.5/3/3.5-compatible backend) and SmolVLM2 with LoRA. You must have access to the referenced model checkpoints.
 
 ```bash
 python scripts/train.py --config configs/qwen25_lora_a100.yaml
+```
+
+```bash
+python scripts/train.py --config configs/qwen35_08b_lora.yaml
 ```
 
 ```bash
@@ -47,10 +51,11 @@ python scripts/train.py \
 ```
 
 Common keys:
-- `backend`: which implementation to use (e.g., `qwen25_vl` or `smolvlm2`).
+- `backend`: which implementation to use (e.g., `qwen25_vl`, `qwen3_vl`, `qwen35_vl`, or `smolvlm2`).
 - `model_id`: HF model identifier.
 - `load_in_4bit`: optional 4-bit loading path (CUDA only).
 - `attn_implementation`: optional attention backend override (for example `flash_attention_2`).
+- `disable_thinking`: when true (default), Qwen chat templating requests no reasoning tokens and masks `<think>` tags during label construction.
 - `lora`: optional LoRA block with `r`, `alpha`, `dropout`, and `target_modules`.
 - Training knobs: `epochs`, `lr`, `per_device_train_bs`, `grad_acc_steps`, `eval_steps`, `save_steps`, etc.
 - Eval sampling: `eval_sample_k` and `eval_sample_mode` (`random` or `first`).
@@ -60,7 +65,7 @@ Common keys:
 
 - `frame2kg_train/backends/`
   - `base.py`: Defines the `VLMBackend` Protocol, `BackendArtifacts` container, and `Collator` signature used by the Trainer.
-  - `qwen25_vl.py`: Working backend for Qwen2.5‑VL (loads model/processor, optional 4‑bit quant, optional LoRA, and provides a matching collator).
+  - `qwen25_vl.py`: Qwen backend for Qwen2.5‑VL / Qwen3‑VL / Qwen3.5-family checkpoints (via AutoProcessor + AutoModelForImageTextToText), with optional 4‑bit quant, optional LoRA, and a matching collator.
   - `smolvlm2.py`: SmolVLM2 backend (AutoProcessor + AutoModelForImageTextToText, optional 4-bit quant, optional LoRA, and Smol-specific generation).
   - `blip2.py`, `florence2.py`: Placeholders showing how additional backends would slot in.
 
@@ -126,6 +131,8 @@ Tips:
 
 - GPU is strongly recommended. The Qwen2.5‑VL backend can run in 4‑bit on CUDA. On macOS, MPS is used automatically for non‑quantized paths.
 - SmolVLM2 support requires `transformers>=4.49.0` and `num2words`.
+- Some Qwen3.5 checkpoints currently require a very recent `transformers` build. If loading fails on model type `qwen3_5`, install from source:
+  - `pip install git+https://github.com/huggingface/transformers.git`
 - Authenticate for gated resources:
   - Hugging Face Hub: `huggingface-cli login` or set `HF_TOKEN`.
   - Weights & Biases: set `WANDB_API_KEY`.
