@@ -28,7 +28,7 @@ class SmolVLM2Backend(VLMBackend):
 
         model_kwargs: Dict[str, Any] = {}
         if attn_impl:
-            model_kwargs["_attn_implementation"] = str(attn_impl)
+            model_kwargs["attn_implementation"] = str(attn_impl)
 
         if load_in_4bit and torch.cuda.is_available():
             bnb_cfg = BitsAndBytesConfig(
@@ -55,7 +55,7 @@ class SmolVLM2Backend(VLMBackend):
         try:
             model = AutoModelForImageTextToText.from_pretrained(model_id, **model_kwargs)
         except TypeError:
-            model_kwargs.pop("_attn_implementation", None)
+            model_kwargs.pop("attn_implementation", None)
             model = AutoModelForImageTextToText.from_pretrained(model_id, **model_kwargs)
 
         pad_id = proc.tokenizer.pad_token_id

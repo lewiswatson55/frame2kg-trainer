@@ -52,7 +52,7 @@ class Qwen25VLBackend(VLMBackend):
         # Model
         model_kwargs: Dict[str, Any] = {}
         if attn_impl:
-            model_kwargs["_attn_implementation"] = str(attn_impl)
+            model_kwargs["attn_implementation"] = str(attn_impl)
 
         precision_path = "unknown"
         if load_in_4bit and torch.cuda.is_available():
@@ -97,7 +97,7 @@ class Qwen25VLBackend(VLMBackend):
                 ) from e
             raise
         except TypeError:
-            model_kwargs.pop("_attn_implementation", None)
+            model_kwargs.pop("attn_implementation", None)
             model = AutoModelForImageTextToText.from_pretrained(
                 model_id,
                 trust_remote_code=trust_remote_code,
