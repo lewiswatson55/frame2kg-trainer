@@ -89,6 +89,7 @@ Common keys:
 ## Currently working out of the box
 
 - A fully wired Qwen2.5‑VL backend with optional 4‑bit loading and LoRA adapters (via PEFT).
+- A fully wired Qwen3‑VL backend with optional 4‑bit loading and LoRA adapters (via PEFT).
 - A fully wired SmolVLM2 backend with optional 4‑bit loading and LoRA adapters (via PEFT).
 - A Qwen‑compatible collator that constructs chat prompts and masks labels for supervised fine‑tuning.
 - A SmolVLM-compatible collator that preserves the same system/user prompt contract and masking scheme.
