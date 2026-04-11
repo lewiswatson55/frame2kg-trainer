@@ -15,15 +15,15 @@ python -m venv .venv && source .venv/bin/activate && pip install -e .
 This scaffold includes a training entrypoint and example configs for Qwen (2.5/3/3.5-compatible backend) and SmolVLM2 with LoRA. You must have access to the referenced model checkpoints.
 
 ```bash
-python scripts/train.py --config configs/qwen25_lora_a100.yaml
+python scripts/train.py --config configs/qwen25vl/qwen25_lora_a100.yaml
 ```
 
 ```bash
-python scripts/train.py --config configs/qwen35_08b_lora.yaml
+python scripts/train.py --config configs/qwen35vl/qwen35_08b_lora.yaml
 ```
 
 ```bash
-python scripts/train.py --config configs/smolvlm2_500m_lora.yaml --overrides wandb.project=quicktest-blah
+python scripts/train.py --config configs/smolvlm2/smolvlm2_500m_lora.yaml --overrides wandb.project=quicktest-blah
 ```
 
 Environment variables:
@@ -41,12 +41,12 @@ For evaluation see the [Frame2KG Evaluation Toolkit](https://anonymous.4open.sci
 
 ## Configuration and overrides
 
-- All training/runtime options are driven by a YAML config (see `configs/qwen25_lora_a100.yaml` or `configs/smolvlm2_500m_lora.yaml`).
+- All training/runtime options are driven by a YAML config (see `configs/qwen25vl/qwen25_lora_a100.yaml` or `configs/smolvlm2/smolvlm2_500m_lora.yaml`).
 - You can override any config value at the CLI using `--overrides key=value` pairs (supports dot-notation):
 
 ```bash
 python scripts/train.py \
-  --config configs/smolvlm2_500m_lora.yaml \
+  --config configs/smolvlm2/smolvlm2_500m_lora.yaml \
   --overrides per_device_train_bs=2 lr=1e-4 eval_sample_k=5 wandb.project=my-project
 ```
 
@@ -54,7 +54,7 @@ To train on nodes-first graph JSON without changing the dataset:
 
 ```bash
 python scripts/train.py \
-  --config configs/qwen25_lora_a100.yaml \
+  --config configs/qwen25vl/qwen25_lora_a100.yaml \
   --overrides graph_key_order=nodes_first
 ```
 
@@ -92,7 +92,7 @@ Common keys:
   - `run.py`: `Runner` orchestrates loading the backend, datasets, metrics, Trainer, callbacks, training, evaluation, and artifact export.
 
 - `scripts/train.py`: CLI entrypoint that loads YAML, applies overrides, and invokes `Runner`.
-- `configs/*.yaml`: Example configs (Qwen2.5‑VL working example; BLIP‑2/Florence2 placeholders).
+- `configs/<model-type>/*.yaml`: Example configs grouped by model family (`qwen25vl`, `qwen3vl`, `qwen35vl`, `smolvlm2`).
 - Packaging: `pyproject.toml` and `requirements.txt`.
 
 ## Currently working out of the box
@@ -123,11 +123,11 @@ Common keys:
   - `"my_backend": MyBackend(),`
 
 4) Add a config
-- Create `configs/my_backend_lora.yaml` (or similar) with keys for `backend`, `model_id`, optional `lora`, and training hyperparameters.
+- Create `configs/<model-type>/my_backend_lora.yaml` (or similar) with keys for `backend`, `model_id`, optional `lora`, and training hyperparameters.
 
 5) Run training
 ```bash
-python scripts/train.py --config configs/my_backend_lora.yaml \
+python scripts/train.py --config configs/<model-type>/my_backend_lora.yaml \
   --overrides run_name=my-backend-test eval_sample_k=3
 ```
 
