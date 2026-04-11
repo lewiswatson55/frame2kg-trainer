@@ -76,7 +76,6 @@ Common keys:
   - `base.py`: Defines the `VLMBackend` Protocol, `BackendArtifacts` container, and `Collator` signature used by the Trainer.
   - `qwen25_vl.py`: Qwen backend for Qwen2.5‑VL / Qwen3‑VL / Qwen3.5-family checkpoints (via AutoProcessor + AutoModelForImageTextToText), with optional 4‑bit quant, optional LoRA, and a matching collator.
   - `smolvlm2.py`: SmolVLM2 backend (AutoProcessor + AutoModelForImageTextToText, optional 4-bit quant, optional LoRA, and Smol-specific generation).
-  - `blip2.py`, `florence2.py`: Placeholders showing how additional backends would slot in.
 
 - `frame2kg_train/data/`
   - `datasets.py`: Loads the Frame2KG dataset from the HF Hub and ensures the `image` column is typed as `datasets.Image`.
@@ -110,7 +109,7 @@ Common keys:
 1) Implement the backend class
 - Create `frame2kg_train/backends/<name>.py` with a class `<Name>Backend(VLMBackend)`.
 - Implement:
-  - `name`: string key used in configs (e.g., `"blip2"`).
+  - `name`: string key used in configs (e.g., `"my_backend"`).
   - `load(cfg) -> BackendArtifacts`: Load tokenizer/processor/model (and optional quant/LoRA), and return `BackendArtifacts(model, tokenizer, processor, collator)`.
   - `default_lora_target_modules() -> List[str]`: Reasonable defaults for your architecture (optional).
   - `generate_text(artifacts, image, prompt, max_new_tokens) -> str`: Single‑sample generation for logging/eval.
@@ -149,5 +148,4 @@ Tips:
 - If you experience out‑of‑memory issues, lower `per_device_train_bs`, raise `grad_acc_steps`, or reduce `max_new_tokens`.
 
 ## Notes
-- `blip2` and `florence2` backends are placeholders and raise NotImplementedError.
 - Dataset loader expects approved access to the gated dataset `lewiswatson/Frame2KG-YC2` on the Hugging Face Hub.
