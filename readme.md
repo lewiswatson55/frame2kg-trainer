@@ -46,12 +46,21 @@ python scripts/train.py \
   --overrides per_device_train_bs=2 lr=1e-4 eval_sample_k=5 wandb.project=my-project
 ```
 
+To train on nodes-first graph JSON without changing the dataset:
+
+```bash
+python scripts/train.py \
+  --config configs/qwen25_lora_a100.yaml \
+  --overrides graph_key_order=nodes_first
+```
+
 Common keys:
 - `backend`: which implementation to use (e.g., `qwen25_vl` or `smolvlm2`).
 - `model_id`: HF model identifier.
 - `load_in_4bit`: optional 4-bit loading path (CUDA only).
 - `attn_implementation`: optional attention backend override (for example `flash_attention_2`).
 - `lora`: optional LoRA block with `r`, `alpha`, `dropout`, and `target_modules`.
+- `graph_key_order`: target JSON top-level key order. Defaults to `dataset`; use `nodes_first` to train on `{"nodes":...,"edges":...}` even when the dataset stores edges first.
 - Training knobs: `epochs`, `lr`, `per_device_train_bs`, `grad_acc_steps`, `eval_steps`, `save_steps`, etc.
 - Eval sampling: `eval_sample_k` and `eval_sample_mode` (`random` or `first`).
 - WandB: `wandb.project` and `wandb.entity`.

@@ -8,6 +8,7 @@ from datasets import Dataset
 from PIL import Image
 from transformers import TrainerCallback
 
+from frame2kg_train.data.collators import graph_to_json_text
 from frame2kg_train.eval.json_utils import first_json_object
 from frame2kg_train.eval.metrics import calc_node_scores, calc_edge_scores
 
@@ -56,6 +57,7 @@ class CustomWandbCallback(TrainerCallback):
     eval_ds: Dataset
     system_prompt: str
     max_new_tokens: int
+    graph_key_order: str = "dataset"
 
     def on_train_begin(self, args, state, control, model=None, **kwargs):
         import wandb
@@ -86,7 +88,7 @@ class CustomWandbCallback(TrainerCallback):
                 img=_Image2.open(img).convert("RGB")
             gt_raw=ex["graph"]
             import json as _json
-            gt_str=gt_raw if isinstance(gt_raw,str) else _json.dumps(gt_raw, ensure_ascii=False, separators=(",", ":"))
+            gt_str=graph_to_json_text(gt_raw, self.graph_key_order)
             prompt=self.system_prompt.replace("The first character must be \"{\"", "The first character must be \"{\"")  # no-op; keep prompt stable
             # Build chat using the processor's template to ensure image placeholders match
             chat = [
