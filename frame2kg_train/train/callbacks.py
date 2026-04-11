@@ -1,4 +1,5 @@
 from __future__ import annotations
+import json as _json
 from dataclasses import dataclass
 from html import escape
 from typing import Any
@@ -87,7 +88,6 @@ class CustomWandbCallback(TrainerCallback):
                 from PIL import Image as _Image2
                 img=_Image2.open(img).convert("RGB")
             gt_raw=ex["graph"]
-            import json as _json
             gt_str=graph_to_json_text(gt_raw, self.graph_key_order)
             prompt=self.system_prompt.replace("The first character must be \"{\"", "The first character must be \"{\"")  # no-op; keep prompt stable
             # Build chat using the processor's template to ensure image placeholders match
