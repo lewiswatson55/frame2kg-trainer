@@ -99,14 +99,14 @@ class CustomWandbCallback(TrainerCallback):
                     ],
                 },
             ]
+            template_kwargs = {"tokenize": False, "add_generation_prompt": True}
+            if getattr(self.artifacts.collator, "disable_thinking", True):
+                template_kwargs["enable_thinking"] = False
             try:
-                user_prompt = self.artifacts.processor.apply_chat_template(
-                    chat, tokenize=False, add_generation_prompt=True, enable_thinking=False
-                )
+                user_prompt = self.artifacts.processor.apply_chat_template(chat, **template_kwargs)
             except TypeError:
-                user_prompt = self.artifacts.processor.apply_chat_template(
-                    chat, tokenize=False, add_generation_prompt=True
-                )
+                template_kwargs.pop("enable_thinking", None)
+                user_prompt = self.artifacts.processor.apply_chat_template(chat, **template_kwargs)
             pred_txt = self.backend.generate_text(
                 self.artifacts, img, user_prompt, self.max_new_tokens
             )
