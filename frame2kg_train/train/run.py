@@ -16,7 +16,7 @@ from frame2kg_train.train.callbacks import PeriodicEvalCallback, CustomWandbCall
 from frame2kg_train.train.registry import get_backend
 from frame2kg_train.data.datasets import load_frame2kg
 from frame2kg_train.eval.metrics import make_compute_metrics
-from frame2kg_train.data.collators import SYSTEM_PROMPT
+from frame2kg_train.data.collators import SYSTEM_PROMPT, graph_to_json_text, normalise_graph_key_order
 
 def _post_run_wait_and_shutdown(cfg: Dict[str, Any], *, run_failed: bool) -> None:
     shutdown_cfg = cfg.get("auto_shutdown", True)
@@ -85,6 +85,7 @@ class Runner:
         set_seed(seed); np.random.seed(seed)
         skip_eval = bool(self.cfg.get("skip_eval", False))
         model_id = self.cfg.get("model_id", "Qwen/Qwen2.5-VL-3B-Instruct")
+        graph_key_order = normalise_graph_key_order(self.cfg.get("graph_key_order", "dataset"))
         run_ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
         base_run_name = self.cfg.get("run_name", "frame2kg")
         run_name = f"{base_run_name}-{run_ts}"
@@ -94,11 +95,20 @@ class Runner:
         final_dir = os.path.join(run_dir, "final"); os.makedirs(final_dir, exist_ok=True)
 
         try:
-            wandb.init(project=self.cfg["wandb"]["project"], entity=self.cfg["wandb"].get("entity"), name=run_name, config=self.cfg)
+            wandb_cfg = dict(self.cfg)
+            wandb_cfg["graph_key_order"] = graph_key_order # adding to show order used for reproducability
+            wandb.init(
+                project=self.cfg["wandb"]["project"],
+                entity=self.cfg["wandb"].get("entity"),
+                name=run_name,
+                config=wandb_cfg,
+            )
 
             backend_name = self.cfg.get("backend", "qwen25_vl")
             backend = get_backend(backend_name)
             artifacts = backend.load(self.cfg)
+            if hasattr(artifacts.collator, "graph_key_order"):
+                setattr(artifacts.collator, "graph_key_order", graph_key_order)
 
             compute_metrics = None
 
@@ -122,12 +132,7 @@ class Runner:
                     eval_ds = eval_ds.select(idx)
                 eval_ds = eval_ds.add_column("mode", ["eval"] * len(eval_ds))
                 # Attach pre‑stringified GT for metrics
-                import json as _json
-
-                def _to_json(x):
-                    return x if isinstance(x, str) else _json.dumps(x, ensure_ascii=False, separators=(",", ":"))
-
-                compute_metrics._eval_label_texts = [_to_json(r["graph"]) for r in eval_ds]  # type: ignore[attr-defined]
+                compute_metrics._eval_label_texts = [graph_to_json_text(r["graph"], graph_key_order) for r in eval_ds]  # type: ignore[attr-defined]
             else:
                 eval_ds = None
 
@@ -171,7 +176,14 @@ class Runner:
             }
             training_args = build_seq2seq_training_args(common, max_new_tokens=max_new, do_eval=not skip_eval)
 
-            wandb_cb = CustomWandbCallback(backend=backend, artifacts=artifacts, eval_ds=eval_ds, system_prompt=SYSTEM_PROMPT, max_new_tokens=max_new)
+            wandb_cb = CustomWandbCallback(
+                backend=backend,
+                artifacts=artifacts,
+                eval_ds=eval_ds,
+                system_prompt=SYSTEM_PROMPT,
+                max_new_tokens=max_new,
+                graph_key_order=graph_key_order,
+            )
             save_adapters_cb = SaveAdaptersCallback(proc=artifacts.processor, max_new_tokens=max_new)
             callbacks = [wandb_cb, save_adapters_cb]
             if not skip_eval:

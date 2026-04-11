@@ -1,5 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
+import json
 from typing import Any, Dict, List
 
 import torch
@@ -14,7 +15,6 @@ SYSTEM_PROMPT = (
     'The first character must be "{", and the last must be "}".'
 )
 
-
 def _apply_chat_template(proc: Any, chat: List[Dict[str, Any]], *, add_generation_prompt: bool, disable_thinking: bool) -> str:
     kwargs: Dict[str, Any] = {
         "tokenize": False,
@@ -28,13 +28,50 @@ def _apply_chat_template(proc: Any, chat: List[Dict[str, Any]], *, add_generatio
         kwargs.pop("enable_thinking", None)
         return proc.apply_chat_template(chat, **kwargs)
 
+def normalise_graph_key_order(value: Any = "dataset") -> str:
+    order = str(value or "dataset").strip().lower()
+    if order not in {"dataset", "nodes_first", "edges_first"}:
+        raise ValueError("graph_key_order must be one of: dataset, nodes_first, edges_first")
+    return order
+
+
+def _reorder_graph_keys(graph: Any, graph_key_order: str) -> Any:
+    order = normalise_graph_key_order(graph_key_order)
+    if order == "dataset" or not isinstance(graph, dict):
+        return graph
+
+    preferred = ("nodes", "edges") if order == "nodes_first" else ("edges", "nodes")
+    reordered: Dict[str, Any] = {}
+    for key in preferred:
+        if key in graph:
+            reordered[key] = graph[key]
+    for key, value in graph.items():
+        if key not in reordered:
+            reordered[key] = value
+    return reordered
+
+
+def graph_to_json_text(graph: Any, graph_key_order: str = "dataset") -> str:
+    if isinstance(graph, str):
+        if normalise_graph_key_order(graph_key_order) == "dataset":
+            return graph
+        try:
+            graph = json.loads(graph)
+        except Exception:
+            return graph
+
+    graph = _reorder_graph_keys(graph, graph_key_order)
+    return json.dumps(graph, ensure_ascii=False, separators=(",", ":"))
+
 
 @dataclass
 class QwenVLDataCollator:
     proc: Any
+    graph_key_order: str = "dataset"
     disable_thinking: bool = True
 
     def __post_init__(self):
+        self.graph_key_order = normalise_graph_key_order(self.graph_key_order)
         self.pad_id = self.proc.tokenizer.pad_token_id
         special_tokens = [
             "<|im_start|>", "<|im_end|>", "<|endoftext|>",
@@ -57,16 +94,12 @@ class QwenVLDataCollator:
         gold_graphs = [b["graph"] for b in batch]
         mode = batch[0].get("mode", "train")
 
-        def _to_json_text(x):
-            import json
-            return x if isinstance(x, str) else json.dumps(x, ensure_ascii=False, separators=(",", ":"))
-
         chats = []
         for img, g in zip(images, gold_graphs):
             chats.append([
                 {"role": "system", "content": [{"type": "text", "text": SYSTEM_PROMPT}]},
                 {"role": "user", "content": [{"type": "image", "image": img}, {"type": "text", "text": "Extract data in JSON."}]},
-                {"role": "assistant", "content": [{"type": "text", "text": _to_json_text(g)}]},
+                {"role": "assistant", "content": [{"type": "text", "text": graph_to_json_text(g, self.graph_key_order)}]},
             ])
 
         full_texts = [
@@ -115,8 +148,10 @@ class QwenVLDataCollator:
 @dataclass
 class SmolVLMDataCollator:
     proc: Any
+    graph_key_order: str = "dataset"
 
     def __post_init__(self):
+        self.graph_key_order = normalise_graph_key_order(self.graph_key_order)
         tok = self.proc.tokenizer
         self.pad_id = tok.pad_token_id if tok.pad_token_id is not None else (tok.eos_token_id or 0)
         self.special_ids = set(getattr(tok, "all_special_ids", []) or [])
@@ -143,11 +178,6 @@ class SmolVLMDataCollator:
         gold_graphs = [b["graph"] for b in batch]
         mode = batch[0].get("mode", "train")
 
-        def _to_json_text(x):
-            import json
-
-            return x if isinstance(x, str) else json.dumps(x, ensure_ascii=False, separators=(",", ":"))
-
         chats = []
         for img, g in zip(images, gold_graphs):
             chats.append(
@@ -160,7 +190,7 @@ class SmolVLMDataCollator:
                             {"type": "text", "text": "Extract data in JSON."},
                         ],
                     },
-                    {"role": "assistant", "content": [{"type": "text", "text": _to_json_text(g)}]},
+                    {"role": "assistant", "content": [{"type": "text", "text": graph_to_json_text(g, self.graph_key_order)}]},
                 ]
             )
 
