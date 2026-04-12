@@ -219,3 +219,101 @@ class SmolVLMDataCollator:
         # Dummy labels to satisfy Trainer signature; metrics ignore these
         prompt_inputs["labels"] = torch.full_like(prompt_inputs["input_ids"], -100)
         return prompt_inputs
+
+
+@dataclass
+class Gemma4DataCollator:
+    proc: Any
+    graph_key_order: str = "dataset"
+    disable_thinking: bool = True
+
+    def __post_init__(self):
+        self.graph_key_order = normalise_graph_key_order(self.graph_key_order)
+        tok = self.proc.tokenizer
+        self.pad_id = tok.pad_token_id if tok.pad_token_id is not None else (tok.eos_token_id or 0)
+        self.special_ids = set(getattr(tok, "all_special_ids", []) or [])
+
+        for attr in (
+            "boi_token_id",
+            "image_token_id",
+            "eoi_token_id",
+            "boa_token_id",
+            "audio_token_id",
+            "eoa_token_id",
+        ):
+            tid = getattr(tok, attr, None)
+            if tid is not None:
+                self.special_ids.add(tid)
+
+        for token in ("<|turn>", "<turn|>", "<|channel>", "<channel|>", "<|think|>"):
+            tid = tok.convert_tokens_to_ids(token)
+            if tid is not None and tid != tok.unk_token_id:
+                self.special_ids.add(tid)
+
+    def _to_pil(self, x):
+        if isinstance(x, str):
+            return Image.open(x).convert("RGB")
+        return x
+
+    def __call__(self, batch: List[Dict[str, Any]]):
+        images = [self._to_pil(b["image"]) for b in batch]
+        batched_images = [[img] for img in images]
+        gold_graphs = [b["graph"] for b in batch]
+        mode = batch[0].get("mode", "train")
+
+        chats = []
+        for img, g in zip(images, gold_graphs):
+            chats.append(
+                [
+                    {"role": "system", "content": [{"type": "text", "text": SYSTEM_PROMPT}]},
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "image", "image": img},
+                            {"type": "text", "text": "Extract data in JSON."},
+                        ],
+                    },
+                    {"role": "assistant", "content": [{"type": "text", "text": graph_to_json_text(g, self.graph_key_order)}]},
+                ]
+            )
+
+        full_texts = [
+            _apply_chat_template(
+                self.proc,
+                chat,
+                add_generation_prompt=False,
+                disable_thinking=self.disable_thinking,
+            )
+            for chat in chats
+        ]
+        prompts = [
+            _apply_chat_template(
+                self.proc,
+                chat[:2],
+                add_generation_prompt=True,
+                disable_thinking=self.disable_thinking,
+            )
+            for chat in chats
+        ]
+
+        if mode == "train":
+            inputs = self.proc(text=full_texts, images=batched_images, return_tensors="pt", padding=True)
+            prompt_inputs = self.proc(text=prompts, images=batched_images, return_tensors="pt", padding=True)
+
+            input_ids = inputs["input_ids"]
+            labels = input_ids.clone()
+            prompt_lens = (prompt_inputs["input_ids"] != self.pad_id).sum(dim=1)
+            for i, cutoff in enumerate(prompt_lens.tolist()):
+                labels[i, :cutoff] = -100
+            labels[input_ids == self.pad_id] = -100
+            if self.special_ids:
+                mask = torch.zeros_like(labels, dtype=torch.bool)
+                for sid in self.special_ids:
+                    mask |= input_ids == sid
+                labels[mask] = -100
+            inputs["labels"] = labels
+            return inputs
+
+        prompt_inputs = self.proc(text=prompts, images=batched_images, return_tensors="pt", padding=True)
+        prompt_inputs["labels"] = torch.full_like(prompt_inputs["input_ids"], -100)
+        return prompt_inputs

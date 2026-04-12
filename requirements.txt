@@ -1,4 +1,4 @@
-transformers>=4.49.0
+transformers>=5.5.3
 datasets
 accelerate
 peft
