@@ -8,7 +8,7 @@ dependencies = [
   "transformers>=5.5.3",
   "datasets",
   "accelerate",
-  "peft",
+  "peft>=0.18.0",
   "bitsandbytes; platform_system == 'Linux'",
   "wandb",
   "num2words",
