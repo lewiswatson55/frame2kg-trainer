@@ -14,7 +14,7 @@ lora:
 
 # training
 seed: 42
-run_name: qwen35-08b-frame2kg-nodes-first
+run_name: qwen35-08b-frame2kg-nodes-first-gradaccommatch
 output_dir: ../output
 max_new_tokens: 4098
 lr: 5e-5
