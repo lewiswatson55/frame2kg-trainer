@@ -1,6 +1,6 @@
 training_repo: "https://github.com/lewiswatson55/frame2kg-trainer"
 backend: qwen35_vl
-model_id: Qwen/Qwen3.5-0.8B
+model_id: Qwen/Qwen3.5-9B
 min_pixels: 200704
 max_pixels: 878080
 load_in_4bit: false
@@ -14,7 +14,7 @@ lora:
 
 # training
 seed: 42
-run_name: qwen35-08b-frame2kg-nodes-first
+run_name: qwen35-9b-frame2kg-nodes-first
 output_dir: ../output
 max_new_tokens: 4098
 lr: 5e-5
