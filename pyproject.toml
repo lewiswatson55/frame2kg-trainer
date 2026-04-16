@@ -5,17 +5,18 @@ description = "Frame→KG training with pluggable VLM backends"
 authors = [{name="Lewis Watson"}]
 requires-python = ">=3.10"
 dependencies = [
-  "transformers>=4.41.0",
+  "transformers>=4.57.0",
   "datasets",
   "accelerate",
   "peft",
   "bitsandbytes; platform_system == 'Linux'",
   "wandb",
+  "num2words",
   "Pillow",
   "PyYAML",
   "torch",
   "torchvision",
-  "tdqm",
+  "tqdm",
 ]
 
 [tool.setuptools.packages.find]
