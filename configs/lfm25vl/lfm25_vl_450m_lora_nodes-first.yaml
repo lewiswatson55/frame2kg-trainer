@@ -7,7 +7,7 @@ lora:
   r: 8
   alpha: 16
   dropout: 0.05
-  target_modules: [q_proj, k_proj, v_proj, out_proj]
+  target_modules: [q_proj, k_proj, v_proj, out_proj, w1, w2, w3]
 
 # training
 seed: 42
@@ -22,13 +22,14 @@ grad_acc_steps: 1
 warmup_ratio: 0.03
 weight_decay: 0.01
 logging_steps: 10
-save_steps: 20
+save_steps: 100
 save_total_limit: 2
 eval_steps: 20
-num_workers: 16
+num_workers: 4
 eval_sample_k: 3
 eval_sample_mode: random
 export_merged: false
+skip_eval: true
 
 wandb:
   project: lfm25vl-450m-frame2kg-proj
