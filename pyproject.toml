@@ -5,7 +5,7 @@ description = "Frame→KG training with pluggable VLM backends"
 authors = [{name="Lewis Watson"}]
 requires-python = ">=3.10"
 dependencies = [
-  "transformers>=4.57.0",
+  "transformers>=4.57.1",
   "datasets",
   "accelerate",
   "peft",
