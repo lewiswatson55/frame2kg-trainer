@@ -64,6 +64,30 @@ def graph_to_json_text(graph: Any, graph_key_order: str = "dataset") -> str:
     return json.dumps(graph, ensure_ascii=False, separators=(",", ":"))
 
 
+def _non_pad_mask(inputs: Dict[str, torch.Tensor], input_ids: torch.Tensor, pad_id: int) -> torch.Tensor:
+    attention_mask = inputs.get("attention_mask")
+    if attention_mask is not None:
+        return attention_mask.to(device=input_ids.device, dtype=torch.bool)
+    return input_ids != pad_id
+
+
+def _mask_prompt_labels(
+    labels: torch.Tensor,
+    input_ids: torch.Tensor,
+    inputs: Dict[str, torch.Tensor],
+    prompt_inputs: Dict[str, torch.Tensor],
+    pad_id: int,
+) -> torch.Tensor:
+    full_non_pad = _non_pad_mask(inputs, input_ids, pad_id)
+    prompt_non_pad = _non_pad_mask(prompt_inputs, prompt_inputs["input_ids"], pad_id)
+    prompt_lens = prompt_non_pad.sum(dim=1).to(device=input_ids.device)
+
+    token_positions = full_non_pad.long().cumsum(dim=1)
+    labels[full_non_pad & (token_positions <= prompt_lens[:, None])] = -100
+    labels[~full_non_pad] = -100
+    return labels
+
+
 @dataclass
 class QwenVLDataCollator:
     proc: Any
@@ -127,10 +151,7 @@ class QwenVLDataCollator:
 
             input_ids = inputs["input_ids"]
             labels = input_ids.clone()
-            prompt_lens = (prompt_inputs["input_ids"] != self.pad_id).sum(dim=1)
-            for i, cutoff in enumerate(prompt_lens.tolist()):
-                labels[i, :cutoff] = -100
-            labels[input_ids == self.pad_id] = -100
+            labels = _mask_prompt_labels(labels, input_ids, inputs, prompt_inputs, self.pad_id)
             if self.special_ids:
                 mask = torch.zeros_like(labels, dtype=torch.bool)
                 for sid in self.special_ids:
@@ -211,10 +232,7 @@ class LFMVLDataCollator:
 
             input_ids = inputs["input_ids"]
             labels = input_ids.clone()
-            prompt_lens = (prompt_inputs["input_ids"] != self.pad_id).sum(dim=1)
-            for i, cutoff in enumerate(prompt_lens.tolist()):
-                labels[i, :cutoff] = -100
-            labels[input_ids == self.pad_id] = -100
+            labels = _mask_prompt_labels(labels, input_ids, inputs, prompt_inputs, self.pad_id)
             if self.special_ids:
                 mask = torch.zeros_like(labels, dtype=torch.bool)
                 for sid in self.special_ids:
@@ -286,10 +304,7 @@ class SmolVLMDataCollator:
 
             input_ids = inputs["input_ids"]
             labels = input_ids.clone()
-            prompt_lens = (prompt_inputs["input_ids"] != self.pad_id).sum(dim=1)
-            for i, cutoff in enumerate(prompt_lens.tolist()):
-                labels[i, :cutoff] = -100
-            labels[input_ids == self.pad_id] = -100
+            labels = _mask_prompt_labels(labels, input_ids, inputs, prompt_inputs, self.pad_id)
             if self.special_ids:
                 mask = torch.zeros_like(labels, dtype=torch.bool)
                 for sid in self.special_ids:
