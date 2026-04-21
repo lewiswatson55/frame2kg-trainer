@@ -1,17 +1,16 @@
 training_repo: "https://github.com/lewiswatson55/frame2kg-trainer"
 backend: smolvlm2
-model_id: HuggingFaceTB/SmolVLM2-500M-Video-Instruct
+model_id: HuggingFaceTB/SmolVLM2-2.2B-Instruct
 load_in_4bit: false
 lora:
   r: 8
   alpha: 16
   dropout: 0.05
   target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, down_proj, up_proj]
-graph_key_order: nodes_first
 
 # training
 seed: 42
-run_name: smolvlm2-500m-frame2kg
+run_name: smolvlm2-2.2B-frame2kg
 output_dir: ../output
 max_new_tokens: 4098
 lr: 5e-5
