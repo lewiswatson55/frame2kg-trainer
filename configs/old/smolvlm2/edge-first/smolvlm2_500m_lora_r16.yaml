@@ -3,15 +3,14 @@ backend: smolvlm2
 model_id: HuggingFaceTB/SmolVLM2-500M-Video-Instruct
 load_in_4bit: false
 lora:
-  r: 8
-  alpha: 16
+  r: 16
+  alpha: 32
   dropout: 0.05
   target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, down_proj, up_proj]
-graph_key_order: nodes_first
 
 # training
 seed: 42
-run_name: smolvlm2-500m-frame2kg
+run_name: smolvlm2-500m-r16-frame2kg
 output_dir: ../output
 max_new_tokens: 4098
 lr: 5e-5
@@ -32,5 +31,5 @@ export_merged: false
 skip_eval: true
 
 wandb:
-  project: frame2kg-proj-postpaper-eval
+  project: smolvlm2-500m-frame2kg-proj
   entity: null

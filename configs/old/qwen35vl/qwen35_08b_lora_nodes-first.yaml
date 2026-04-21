@@ -1,24 +1,27 @@
 training_repo: "https://github.com/lewiswatson55/frame2kg-trainer"
-backend: smolvlm2
-model_id: HuggingFaceTB/SmolVLM2-500M-Video-Instruct
+backend: qwen35_vl
+model_id: Qwen/Qwen3.5-0.8B
+min_pixels: 200704
+max_pixels: 878080
 load_in_4bit: false
+disable_thinking: true
+graph_key_order: nodes_first
 lora:
   r: 8
   alpha: 16
   dropout: 0.05
   target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, down_proj, up_proj]
-graph_key_order: nodes_first
 
 # training
 seed: 42
-run_name: smolvlm2-500m-frame2kg
+run_name: qwen35-08b-frame2kg-nodes-first
 output_dir: ../output
 max_new_tokens: 4098
 lr: 5e-5
 epochs: 3
-per_device_train_bs: 8
+per_device_train_bs: 2
 per_device_eval_bs: 2
-grad_acc_steps: 1
+grad_acc_steps: 4
 warmup_ratio: 0.03
 weight_decay: 0.01
 logging_steps: 10
@@ -32,5 +35,5 @@ export_merged: false
 skip_eval: true
 
 wandb:
-  project: frame2kg-proj-postpaper-eval
+  project: qwen35-frame2kg-proj
   entity: null

@@ -35,5 +35,5 @@ export_merged: false
 skip_eval: true
 
 wandb:
-  project: qwen35-frame2kg-proj
+  project: frame2kg-proj-postpaper-eval
   entity: null

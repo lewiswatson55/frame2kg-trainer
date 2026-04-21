@@ -7,7 +7,6 @@ lora:
   alpha: 16
   dropout: 0.05
   target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, down_proj, up_proj]
-graph_key_order: nodes_first
 
 # training
 seed: 42
@@ -32,5 +31,5 @@ export_merged: false
 skip_eval: true
 
 wandb:
-  project: frame2kg-proj-postpaper-eval
+  project: smolvlm2-500m-frame2kg-proj
   entity: null
