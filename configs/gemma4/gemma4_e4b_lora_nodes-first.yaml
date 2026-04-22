@@ -1,0 +1,38 @@
+training_repo: "https://github.com/lewiswatson55/frame2kg-trainer"
+backend: gemma4_vl
+model_id: google/gemma-4-E4B-it
+load_in_4bit: false
+attn_implementation: sdpa
+disable_thinking: true
+graph_key_order: nodes_first
+lora:
+  r: 8
+  alpha: 16
+  dropout: 0.05
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, down_proj, up_proj]
+
+# training
+seed: 42
+run_name: gemma4-e4b-frame2kg-nodes-first
+output_dir: ../output
+max_new_tokens: 4098
+lr: 5e-5
+epochs: 3
+per_device_train_bs: 2
+per_device_eval_bs: 2
+grad_acc_steps: 4
+warmup_ratio: 0.03
+weight_decay: 0.01
+logging_steps: 10
+save_steps: 100
+save_total_limit: 2
+eval_steps: 20
+num_workers: 4
+eval_sample_k: 3
+eval_sample_mode: random
+export_merged: false
+skip_eval: true
+
+wandb:
+  project: frame2kg-proj-postpaper-eval
+  entity: null
