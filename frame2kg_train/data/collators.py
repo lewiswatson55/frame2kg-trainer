@@ -347,6 +347,138 @@ class Gemma4VLDataCollator:
 
 
 @dataclass
+class InternVL35DataCollator:
+    proc: Any
+    graph_key_order: str = "dataset"
+    disable_thinking: bool = True
+    crop_to_patches: bool = True
+    min_patches: int = 1
+    max_patches: int = 12
+
+    def __post_init__(self):
+        self.graph_key_order = normalise_graph_key_order(self.graph_key_order)
+        tok = self.proc.tokenizer
+        self.pad_id = tok.pad_token_id if tok.pad_token_id is not None else (tok.eos_token_id or 0)
+        self.special_ids = set(getattr(tok, "all_special_ids", []) or [])
+
+        for attr_name in ("image_token_id", "start_image_token_id", "end_image_token_id"):
+            tid = getattr(self.proc, attr_name, None)
+            if tid is not None:
+                self.special_ids.add(int(tid))
+
+        special_tokens = [
+            getattr(self.proc, "image_token", None),
+            getattr(self.proc, "start_image_token", None),
+            getattr(self.proc, "end_image_token", None),
+            getattr(self.proc, "video_token", None),
+            "<|im_start|>",
+            "<|im_end|>",
+            "<|endoftext|>",
+            "<|vision_start|>",
+            "<|vision_end|>",
+            "<|image_pad|>",
+            "<|video_pad|>",
+            "<img>",
+            "</img>",
+            "<IMG_CONTEXT>",
+            "<think>",
+            "</think>",
+        ]
+        for token in special_tokens:
+            if not token:
+                continue
+            tid = tok.convert_tokens_to_ids(token)
+            if tid is not None and tid != tok.unk_token_id:
+                self.special_ids.add(tid)
+
+    def _to_pil(self, x):
+        if isinstance(x, str):
+            return Image.open(x).convert("RGB")
+        return x
+
+    def _build_chat(self, graph: Any | None = None) -> List[Dict[str, Any]]:
+        chat = [
+            {"role": "system", "content": [{"type": "text", "text": SYSTEM_PROMPT}]},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image"},
+                    {"type": "text", "text": "Extract data in JSON."},
+                ],
+            },
+        ]
+        if graph is not None:
+            chat.append(
+                {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": graph_to_json_text(graph, self.graph_key_order)}],
+                }
+            )
+        return chat
+
+    def _processor_call(self, texts: List[str], images: List[Image.Image]):
+        kwargs: Dict[str, Any] = {
+            "text": texts,
+            "images": images,
+            "return_tensors": "pt",
+            "padding": True,
+            "crop_to_patches": self.crop_to_patches,
+            "min_patches": self.min_patches,
+            "max_patches": self.max_patches,
+        }
+        try:
+            return self.proc(**kwargs)
+        except TypeError:
+            kwargs.pop("crop_to_patches", None)
+            kwargs.pop("min_patches", None)
+            kwargs.pop("max_patches", None)
+            return self.proc(**kwargs)
+
+    def __call__(self, batch: List[Dict[str, Any]]):
+        images = [self._to_pil(b["image"]) for b in batch]
+        gold_graphs = [b["graph"] for b in batch]
+        mode = batch[0].get("mode", "train")
+
+        full_texts = [
+            _apply_chat_template(
+                self.proc,
+                self._build_chat(graph),
+                add_generation_prompt=False,
+                disable_thinking=self.disable_thinking,
+            )
+            for graph in gold_graphs
+        ]
+        prompts = [
+            _apply_chat_template(
+                self.proc,
+                self._build_chat(),
+                add_generation_prompt=True,
+                disable_thinking=self.disable_thinking,
+            )
+            for _ in gold_graphs
+        ]
+
+        if mode == "train":
+            inputs = self._processor_call(full_texts, images)
+            prompt_inputs = self._processor_call(prompts, images)
+
+            input_ids = inputs["input_ids"]
+            labels = input_ids.clone()
+            labels = _mask_prompt_labels(labels, input_ids, inputs, prompt_inputs, self.pad_id)
+            if self.special_ids:
+                mask = torch.zeros_like(labels, dtype=torch.bool)
+                for sid in self.special_ids:
+                    mask |= input_ids == sid
+                labels[mask] = -100
+            inputs["labels"] = labels
+            return inputs
+
+        prompt_inputs = self._processor_call(prompts, images)
+        prompt_inputs["labels"] = torch.full_like(prompt_inputs["input_ids"], -100)
+        return prompt_inputs
+
+
+@dataclass
 class Llama32VisionDataCollator:
     proc: Any
     graph_key_order: str = "dataset"
