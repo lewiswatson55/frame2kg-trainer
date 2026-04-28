@@ -71,7 +71,11 @@ class Qwen25VLBackend(VLMBackend):
             )
             precision_path = "4-bit NF4 (compute_dtype=bfloat16)"
         else:
-            dtype = torch.float16 if torch.backends.mps.is_available() else torch.float32
+            dtype = (
+                torch.bfloat16
+                if torch.cuda.is_available()
+                else (torch.float16 if torch.backends.mps.is_available() else torch.float32)
+            )
             model_kwargs["torch_dtype"] = dtype
             precision_path = f"full-precision torch_dtype={dtype}"
 
