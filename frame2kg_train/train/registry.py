@@ -3,6 +3,7 @@ from typing import Dict
 
 from frame2kg_train.backends.base import VLMBackend
 from frame2kg_train.backends.gemma4_vl import Gemma4VLBackend
+from frame2kg_train.backends.internvl35_vl import InternVL35Backend
 from frame2kg_train.backends.lfm25_vl import LFM25VLBackend
 from frame2kg_train.backends.llama32_vision import Llama32VisionBackend
 from frame2kg_train.backends.qwen25_vl import Qwen25VLBackend
@@ -12,6 +13,7 @@ from frame2kg_train.backends.smolvlm2 import SmolVLM2Backend
 
 _REGISTRY: Dict[str, VLMBackend] = {
     "gemma4_vl": Gemma4VLBackend(),
+    "internvl35_vl": InternVL35Backend(),
     "lfm25_vl": LFM25VLBackend(),
     "llama32_vision": Llama32VisionBackend(),
     "qwen25_vl": Qwen25VLBackend(),
