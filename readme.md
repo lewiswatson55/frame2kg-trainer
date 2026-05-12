@@ -181,3 +181,18 @@ Tips:
 
 ## Notes
 - Dataset loader expects approved access to the gated dataset `lewiswatson/Frame2KG-YC2` on the Hugging Face Hub.
+
+## Cite
+
+```bibtex
+@inproceedings{watson2026pair,
+  title = {Frame2KG: A Benchmark and Evaluation Toolkit for Interpretable Frame-to-Graph Generation},
+  author = {Watson, Lewis and Strathearn, Carl and Mitchell, Kenny and Yu, Yanchao},
+  booktitle = {LREC 2026: Language Resources and Evaluation Conference},
+  year = {2026},
+  month = {May},
+  address = {Palma, Mallorca},
+  publisher = {European Language Resources Association (ELRA)},
+  url = {https://lrec2026.info/}
+}
+```
