@@ -185,7 +185,7 @@ Tips:
 ## Cite
 
 ```bibtex
-@inproceedings{watson2026pair,
+@inproceedings{watson2026frame2kg,
   title = {Frame2KG: A Benchmark and Evaluation Toolkit for Interpretable Frame-to-Graph Generation},
   author = {Watson, Lewis and Strathearn, Carl and Mitchell, Kenny and Yu, Yanchao},
   booktitle = {LREC 2026: Language Resources and Evaluation Conference},
