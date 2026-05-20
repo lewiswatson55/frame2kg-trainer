@@ -1,0 +1,40 @@
+# Transformers-native FastVLM conversion checkpoint; not official Apple checkpoint provenance.
+# Official apple/FastVLM-* checkpoints require a separate remote-code backend and are not used here.
+training_repo: "https://github.com/lewiswatson55/frame2kg-trainer"
+backend: fastvlm
+model_id: KamilaMila/FastVLM-7B
+load_in_4bit: false
+trust_remote_code: false
+attn_implementation: sdpa
+graph_key_order: nodes_first
+lora:
+  r: 8
+  alpha: 16
+  dropout: 0.05
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, down_proj, up_proj]
+
+# training
+seed: 42
+run_name: fastvlm-hf-native-7b-frame2kg-nodes-first
+output_dir: ../output
+max_new_tokens: 4098
+lr: 5e-5
+epochs: 3
+per_device_train_bs: 1
+per_device_eval_bs: 2
+grad_acc_steps: 8
+warmup_ratio: 0.03
+weight_decay: 0.01
+logging_steps: 10
+save_steps: 100
+save_total_limit: 2
+eval_steps: 20
+num_workers: 4
+eval_sample_k: 3
+eval_sample_mode: random
+export_merged: false
+skip_eval: true
+
+wandb:
+  project: frame2kg-proj-postpaper-eval
+  entity: null
