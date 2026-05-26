@@ -9,7 +9,13 @@ from datasets import Dataset
 from PIL import Image
 from transformers import TrainerCallback
 
-from frame2kg_train.data.collators import graph_to_json_text
+from frame2kg_train.backends.tokenizer_extension import save_tokenizer_extension_manifest
+from frame2kg_train.data.graph_formats import (
+    COMPRESSED_TOKENS_TARGET_FORMAT,
+    compressed_graph_to_json,
+    graph_to_target_text,
+    normalise_target_format,
+)
 from frame2kg_train.eval.json_utils import first_json_object
 from frame2kg_train.eval.metrics import calc_node_scores, calc_edge_scores
 
@@ -27,7 +33,10 @@ class PeriodicEvalCallback(TrainerCallback):
 @dataclass
 class SaveAdaptersCallback(TrainerCallback):
     proc: Any | None
+    tokenizer: Any | None
     max_new_tokens: int
+    include_processor: bool = False
+
     def on_save(self, args, state, control, model=None, **kwargs):
         import os, json, wandb
         if model is None: return control
@@ -35,6 +44,13 @@ class SaveAdaptersCallback(TrainerCallback):
         tmp_dir=os.path.join(args.output_dir, f"adapters-step-{step}")
         os.makedirs(tmp_dir, exist_ok=True)
         model.save_pretrained(tmp_dir)
+        if self.include_processor:
+            if self.proc is not None:
+                self.proc.save_pretrained(tmp_dir)
+            if self.tokenizer is not None and hasattr(self.tokenizer, "save_pretrained"):
+                self.tokenizer.save_pretrained(tmp_dir)
+            if self.tokenizer is not None:
+                save_tokenizer_extension_manifest(self.tokenizer, tmp_dir)
         metrics=kwargs.get("metrics") or {}
         with open(os.path.join(tmp_dir, "checkpoint_info.json"), "w", encoding="utf-8") as f:
             json.dump({"global_step": step, "event": "on_save", "max_new_tokens": self.max_new_tokens, "metrics": metrics}, f, ensure_ascii=False, indent=2)
@@ -55,10 +71,15 @@ class SaveAdaptersCallback(TrainerCallback):
 class CustomWandbCallback(TrainerCallback):
     backend: Any
     artifacts: Any
-    eval_ds: Dataset
+    eval_ds: Dataset | None
     system_prompt: str
+    user_prompt: str
     max_new_tokens: int
     graph_key_order: str = "dataset"
+    target_format: str = "json"
+
+    def __post_init__(self):
+        self.target_format = normalise_target_format(self.target_format)
 
     def on_train_begin(self, args, state, control, model=None, **kwargs):
         import wandb
@@ -67,16 +88,24 @@ class CustomWandbCallback(TrainerCallback):
         total=sum(p.numel() for p in model.parameters())
         print(f"Training {trainable} parameters out of {total} total ({100*trainable/total:.2f}% trainable)")
         tok=self.artifacts.tokenizer
+        extension = getattr(tok, "_frame2kg_tokenizer_extension", None)
+        tokenizer_metadata = {}
+        if extension is not None and getattr(extension, "enabled", False):
+            tokenizer_metadata = {
+                "added_tokens": list(extension.tokens),
+                "added_token_ids": list(extension.token_ids),
+            }
         wandb.config.update({
             "trainable_params": trainable,
             "all_params": total,
             "trainable_percentage": 100*trainable/total,
             "pad_token_id": getattr(tok, "pad_token_id", None),
+            **tokenizer_metadata,
         }, allow_val_change=True)
 
     def on_evaluate(self, args, state, control, model=None, **kwargs):
         import wandb
-        if model is None or len(self.eval_ds)==0: return control
+        if model is None or self.eval_ds is None or len(self.eval_ds)==0: return control
         columns=["global_step","index","image","gt_json","pred_raw","json_parsed","node_P","node_R","node_F1","node_bbox_iou","edge_P","edge_R","edge_F1"]
         table=wandb.Table(columns=columns)
         first_pred=None; first_gt=None
@@ -88,8 +117,7 @@ class CustomWandbCallback(TrainerCallback):
                 from PIL import Image as _Image2
                 img=_Image2.open(img).convert("RGB")
             gt_raw=ex["graph"]
-            gt_str=graph_to_json_text(gt_raw, self.graph_key_order)
-            prompt=self.system_prompt.replace("The first character must be \"{\"", "The first character must be \"{\"")  # no-op; keep prompt stable
+            gt_str=graph_to_target_text(gt_raw, self.graph_key_order, self.target_format)
             # Build chat using the processor's template to ensure image placeholders match
             chat = [
                 {"role": "system", "content": [{"type": "text", "text": self.system_prompt}]},
@@ -97,7 +125,7 @@ class CustomWandbCallback(TrainerCallback):
                     "role": "user",
                     "content": [
                         {"type": "image", "image": img},
-                        {"type": "text", "text": "Extract data in JSON."},
+                        {"type": "text", "text": self.user_prompt},
                     ],
                 },
             ]
@@ -112,10 +140,16 @@ class CustomWandbCallback(TrainerCallback):
             pred_txt = self.backend.generate_text(
                 self.artifacts, img, user_prompt, self.max_new_tokens
             )
-            pjson=first_json_object(pred_txt)
+            if self.target_format == COMPRESSED_TOKENS_TARGET_FORMAT:
+                pjson = compressed_graph_to_json(pred_txt)
+            else:
+                pjson=first_json_object(pred_txt)
             nP=nR=nF=nIoU=eP=eR=eF=0.0
             try:
-                gt_json = gt_raw if isinstance(gt_raw,(dict,list)) else _json.loads(gt_str)
+                if self.target_format == COMPRESSED_TOKENS_TARGET_FORMAT:
+                    gt_json = compressed_graph_to_json(gt_str)
+                else:
+                    gt_json = gt_raw if isinstance(gt_raw,(dict,list)) else _json.loads(gt_str)
                 if pjson is not None and isinstance(gt_json, dict):
                     gt_nodes=gt_json.get("nodes",[]); pr_nodes=pjson.get("nodes",[])
                     gt_edges=gt_json.get("edges",[]); pr_edges=pjson.get("edges",[])

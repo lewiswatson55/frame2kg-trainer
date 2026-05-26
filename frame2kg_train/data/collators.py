@@ -1,18 +1,19 @@
 from __future__ import annotations
 from dataclasses import dataclass
-import json
 from typing import Any, Dict, List
 
 import torch
 from PIL import Image
 
-SYSTEM_PROMPT = (
-    'You are a VLM that outputs ONLY a single, strict JSON object with exactly the keys "nodes" and "edges". '
-    'Use valid JSON: double quotes for all keys and string values, no single quotes, no trailing commas. '
-    'Schema — "nodes": [{"id":"str","label":"str","location":"x1,y1,x2,y2,confidence","attributes":{...}}], '
-    '"edges":[{"predicate":"str","source":"node.id","target":"node.id"}]. '
-    'Output the JSON object only - no code fences, no role tags, no prefixes/suffixes, no prose. '
-    'The first character must be "{", and the last must be "}".'
+from frame2kg_train.data.graph_formats import (
+    SYSTEM_PROMPT,
+    USER_PROMPT,
+    graph_to_json_text,
+    graph_to_target_text,
+    normalise_graph_key_order,
+    normalise_target_format,
+    system_prompt_for_target_format,
+    user_prompt_for_target_format,
 )
 
 def _apply_chat_template(proc: Any, chat: List[Dict[str, Any]], *, add_generation_prompt: bool, disable_thinking: bool) -> str:
@@ -28,40 +29,21 @@ def _apply_chat_template(proc: Any, chat: List[Dict[str, Any]], *, add_generatio
         kwargs.pop("enable_thinking", None)
         return proc.apply_chat_template(chat, **kwargs)
 
-def normalise_graph_key_order(value: Any = "dataset") -> str:
-    order = str(value or "dataset").strip().lower()
-    if order not in {"dataset", "nodes_first", "edges_first"}:
-        raise ValueError("graph_key_order must be one of: dataset, nodes_first, edges_first")
-    return order
+def _init_target_text_options(collator: Any) -> None:
+    target_format = normalise_target_format(getattr(collator, "target_format", "json"))
+    collator.target_format = target_format
+    if getattr(collator, "system_prompt", None) is None:
+        collator.system_prompt = system_prompt_for_target_format(target_format)
+    if getattr(collator, "user_prompt", None) is None:
+        collator.user_prompt = user_prompt_for_target_format(target_format)
 
 
-def _reorder_graph_keys(graph: Any, graph_key_order: str) -> Any:
-    order = normalise_graph_key_order(graph_key_order)
-    if order == "dataset" or not isinstance(graph, dict):
-        return graph
-
-    preferred = ("nodes", "edges") if order == "nodes_first" else ("edges", "nodes")
-    reordered: Dict[str, Any] = {}
-    for key in preferred:
-        if key in graph:
-            reordered[key] = graph[key]
-    for key, value in graph.items():
-        if key not in reordered:
-            reordered[key] = value
-    return reordered
-
-
-def graph_to_json_text(graph: Any, graph_key_order: str = "dataset") -> str:
-    if isinstance(graph, str):
-        if normalise_graph_key_order(graph_key_order) == "dataset":
-            return graph
-        try:
-            graph = json.loads(graph)
-        except Exception:
-            return graph
-
-    graph = _reorder_graph_keys(graph, graph_key_order)
-    return json.dumps(graph, ensure_ascii=False, separators=(",", ":"))
+def _graph_text_for(collator: Any, graph: Any) -> str:
+    return graph_to_target_text(
+        graph,
+        getattr(collator, "graph_key_order", "dataset"),
+        getattr(collator, "target_format", "json"),
+    )
 
 
 def _non_pad_mask(inputs: Dict[str, torch.Tensor], input_ids: torch.Tensor, pad_id: int) -> torch.Tensor:
@@ -92,10 +74,14 @@ def _mask_prompt_labels(
 class QwenVLDataCollator:
     proc: Any
     graph_key_order: str = "dataset"
+    target_format: str = "json"
+    system_prompt: str | None = None
+    user_prompt: str | None = None
     disable_thinking: bool = True
 
     def __post_init__(self):
         self.graph_key_order = normalise_graph_key_order(self.graph_key_order)
+        _init_target_text_options(self)
         self.pad_id = self.proc.tokenizer.pad_token_id
         special_tokens = [
             "<|im_start|>", "<|im_end|>", "<|endoftext|>",
@@ -121,9 +107,9 @@ class QwenVLDataCollator:
         chats = []
         for img, g in zip(images, gold_graphs):
             chats.append([
-                {"role": "system", "content": [{"type": "text", "text": SYSTEM_PROMPT}]},
-                {"role": "user", "content": [{"type": "image", "image": img}, {"type": "text", "text": "Extract data in JSON."}]},
-                {"role": "assistant", "content": [{"type": "text", "text": graph_to_json_text(g, self.graph_key_order)}]},
+                {"role": "system", "content": [{"type": "text", "text": self.system_prompt}]},
+                {"role": "user", "content": [{"type": "image", "image": img}, {"type": "text", "text": self.user_prompt}]},
+                {"role": "assistant", "content": [{"type": "text", "text": _graph_text_for(self, g)}]},
             ])
 
         full_texts = [
@@ -170,10 +156,14 @@ class QwenVLDataCollator:
 class LFMVLDataCollator:
     proc: Any
     graph_key_order: str = "dataset"
+    target_format: str = "json"
+    system_prompt: str | None = None
+    user_prompt: str | None = None
     disable_thinking: bool = False
 
     def __post_init__(self):
         self.graph_key_order = normalise_graph_key_order(self.graph_key_order)
+        _init_target_text_options(self)
         tok = self.proc.tokenizer
         self.pad_id = tok.pad_token_id if tok.pad_token_id is not None else (tok.eos_token_id or 0)
         self.special_ids = set(getattr(tok, "all_special_ids", []) or [])
@@ -211,15 +201,15 @@ class LFMVLDataCollator:
         for img, g in zip(images, gold_graphs):
             chats.append(
                 [
-                    {"role": "system", "content": [{"type": "text", "text": SYSTEM_PROMPT}]},
+                    {"role": "system", "content": [{"type": "text", "text": self.system_prompt}]},
                     {
                         "role": "user",
                         "content": [
                             {"type": "image", "image": img},
-                            {"type": "text", "text": "Extract data in JSON."},
+                            {"type": "text", "text": self.user_prompt},
                         ],
                     },
-                    {"role": "assistant", "content": [{"type": "text", "text": graph_to_json_text(g, self.graph_key_order)}]},
+                    {"role": "assistant", "content": [{"type": "text", "text": _graph_text_for(self, g)}]},
                 ]
             )
 
@@ -250,10 +240,14 @@ class LFMVLDataCollator:
 class Gemma4VLDataCollator:
     proc: Any
     graph_key_order: str = "dataset"
+    target_format: str = "json"
+    system_prompt: str | None = None
+    user_prompt: str | None = None
     disable_thinking: bool = True
 
     def __post_init__(self):
         self.graph_key_order = normalise_graph_key_order(self.graph_key_order)
+        _init_target_text_options(self)
         tok = self.proc.tokenizer
         self.pad_id = tok.pad_token_id if tok.pad_token_id is not None else (tok.eos_token_id or 0)
         self.special_ids = set(getattr(tok, "all_special_ids", []) or [])
@@ -295,15 +289,15 @@ class Gemma4VLDataCollator:
         for img, g in zip(images, gold_graphs):
             chats.append(
                 [
-                    {"role": "system", "content": [{"type": "text", "text": SYSTEM_PROMPT}]},
+                    {"role": "system", "content": [{"type": "text", "text": self.system_prompt}]},
                     {
                         "role": "user",
                         "content": [
                             {"type": "image", "image": img},
-                            {"type": "text", "text": "Extract data in JSON."},
+                            {"type": "text", "text": self.user_prompt},
                         ],
                     },
-                    {"role": "assistant", "content": [{"type": "text", "text": graph_to_json_text(g, self.graph_key_order)}]},
+                    {"role": "assistant", "content": [{"type": "text", "text": _graph_text_for(self, g)}]},
                 ]
             )
 
@@ -350,6 +344,9 @@ class Gemma4VLDataCollator:
 class InternVL35DataCollator:
     proc: Any
     graph_key_order: str = "dataset"
+    target_format: str = "json"
+    system_prompt: str | None = None
+    user_prompt: str | None = None
     disable_thinking: bool = True
     crop_to_patches: bool = True
     min_patches: int = 1
@@ -357,6 +354,7 @@ class InternVL35DataCollator:
 
     def __post_init__(self):
         self.graph_key_order = normalise_graph_key_order(self.graph_key_order)
+        _init_target_text_options(self)
         tok = self.proc.tokenizer
         self.pad_id = tok.pad_token_id if tok.pad_token_id is not None else (tok.eos_token_id or 0)
         self.special_ids = set(getattr(tok, "all_special_ids", []) or [])
@@ -398,12 +396,12 @@ class InternVL35DataCollator:
 
     def _build_chat(self, graph: Any | None = None) -> List[Dict[str, Any]]:
         chat = [
-            {"role": "system", "content": [{"type": "text", "text": SYSTEM_PROMPT}]},
+            {"role": "system", "content": [{"type": "text", "text": self.system_prompt}]},
             {
                 "role": "user",
                 "content": [
                     {"type": "image"},
-                    {"type": "text", "text": "Extract data in JSON."},
+                    {"type": "text", "text": self.user_prompt},
                 ],
             },
         ]
@@ -411,7 +409,7 @@ class InternVL35DataCollator:
             chat.append(
                 {
                     "role": "assistant",
-                    "content": [{"type": "text", "text": graph_to_json_text(graph, self.graph_key_order)}],
+                    "content": [{"type": "text", "text": _graph_text_for(self, graph)}],
                 }
             )
         return chat
@@ -482,9 +480,13 @@ class InternVL35DataCollator:
 class Llama32VisionDataCollator:
     proc: Any
     graph_key_order: str = "dataset"
+    target_format: str = "json"
+    system_prompt: str | None = None
+    user_prompt: str | None = None
 
     def __post_init__(self):
         self.graph_key_order = normalise_graph_key_order(self.graph_key_order)
+        _init_target_text_options(self)
         tok = self.proc.tokenizer
         self.pad_id = tok.pad_token_id if tok.pad_token_id is not None else (tok.eos_token_id or 0)
         self.special_ids = set(getattr(tok, "all_special_ids", []) or [])
@@ -508,12 +510,12 @@ class Llama32VisionDataCollator:
 
     def _build_chat(self, graph: Any | None = None) -> List[Dict[str, Any]]:
         chat = [
-            {"role": "system", "content": [{"type": "text", "text": SYSTEM_PROMPT}]},
+            {"role": "system", "content": [{"type": "text", "text": self.system_prompt}]},
             {
                 "role": "user",
                 "content": [
                     {"type": "image"},
-                    {"type": "text", "text": "Extract data in JSON."},
+                    {"type": "text", "text": self.user_prompt},
                 ],
             },
         ]
@@ -521,7 +523,7 @@ class Llama32VisionDataCollator:
             chat.append(
                 {
                     "role": "assistant",
-                    "content": [{"type": "text", "text": graph_to_json_text(graph, self.graph_key_order)}],
+                    "content": [{"type": "text", "text": _graph_text_for(self, graph)}],
                 }
             )
         return chat
@@ -589,9 +591,13 @@ class Llama32VisionDataCollator:
 class SmolVLMDataCollator:
     proc: Any
     graph_key_order: str = "dataset"
+    target_format: str = "json"
+    system_prompt: str | None = None
+    user_prompt: str | None = None
 
     def __post_init__(self):
         self.graph_key_order = normalise_graph_key_order(self.graph_key_order)
+        _init_target_text_options(self)
         tok = self.proc.tokenizer
         self.pad_id = tok.pad_token_id if tok.pad_token_id is not None else (tok.eos_token_id or 0)
         self.special_ids = set(getattr(tok, "all_special_ids", []) or [])
@@ -622,15 +628,15 @@ class SmolVLMDataCollator:
         for img, g in zip(images, gold_graphs):
             chats.append(
                 [
-                    {"role": "system", "content": [{"type": "text", "text": SYSTEM_PROMPT}]},
+                    {"role": "system", "content": [{"type": "text", "text": self.system_prompt}]},
                     {
                         "role": "user",
                         "content": [
                             {"type": "image", "image": img},
-                            {"type": "text", "text": "Extract data in JSON."},
+                            {"type": "text", "text": self.user_prompt},
                         ],
                     },
-                    {"role": "assistant", "content": [{"type": "text", "text": graph_to_json_text(g, self.graph_key_order)}]},
+                    {"role": "assistant", "content": [{"type": "text", "text": _graph_text_for(self, g)}]},
                 ]
             )
 
@@ -662,9 +668,13 @@ class SmolVLMDataCollator:
 class FastVLMDataCollator:
     proc: Any
     graph_key_order: str = "dataset"
+    target_format: str = "json"
+    system_prompt: str | None = None
+    user_prompt: str | None = None
 
     def __post_init__(self):
         self.graph_key_order = normalise_graph_key_order(self.graph_key_order)
+        _init_target_text_options(self)
         tok = self.proc.tokenizer
         self.pad_id = tok.pad_token_id if tok.pad_token_id is not None else (tok.eos_token_id or 0)
         self.special_ids = set(getattr(tok, "all_special_ids", []) or [])
@@ -694,12 +704,12 @@ class FastVLMDataCollator:
 
     def _build_chat(self, image: Image.Image, graph: Any | None = None) -> List[Dict[str, Any]]:
         chat = [
-            {"role": "system", "content": [{"type": "text", "text": SYSTEM_PROMPT}]},
+            {"role": "system", "content": [{"type": "text", "text": self.system_prompt}]},
             {
                 "role": "user",
                 "content": [
                     {"type": "image", "image": image},
-                    {"type": "text", "text": "Extract data in JSON."},
+                    {"type": "text", "text": self.user_prompt},
                 ],
             },
         ]
@@ -707,7 +717,7 @@ class FastVLMDataCollator:
             chat.append(
                 {
                     "role": "assistant",
-                    "content": [{"type": "text", "text": graph_to_json_text(graph, self.graph_key_order)}],
+                    "content": [{"type": "text", "text": _graph_text_for(self, graph)}],
                 }
             )
         return chat
@@ -765,7 +775,7 @@ class FastVLMDataCollator:
         images = [self._to_pil(b["image"]) for b in batch]
         gold_graphs = [b["graph"] for b in batch]
         mode = batch[0].get("mode", "train")
-        target_texts = [graph_to_json_text(graph, self.graph_key_order) for graph in gold_graphs]
+        target_texts = [_graph_text_for(self, graph) for graph in gold_graphs]
 
         full_chats = [self._build_chat(img, graph) for img, graph in zip(images, gold_graphs)]
         prompt_chats = [self._build_chat(img) for img in images]

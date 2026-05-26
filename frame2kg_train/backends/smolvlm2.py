@@ -8,6 +8,11 @@ from PIL import Image
 from transformers import AutoModelForImageTextToText, AutoProcessor, BitsAndBytesConfig
 
 from frame2kg_train.backends.base import BackendArtifacts, VLMBackend
+from frame2kg_train.backends.tokenizer_extension import (
+    add_tokens_from_config,
+    lora_config_kwargs,
+    resize_model_embeddings_for_tokenizer,
+)
 from frame2kg_train.data.collators import SmolVLMDataCollator
 
 
@@ -25,6 +30,7 @@ class SmolVLM2Backend(VLMBackend):
         if proc.tokenizer.pad_token is None:
             proc.tokenizer.pad_token = proc.tokenizer.eos_token
         proc.tokenizer.padding_side = "left"
+        tokenizer_extension = add_tokens_from_config(proc.tokenizer, cfg)
 
         model_kwargs: Dict[str, Any] = {}
         if attn_impl:
@@ -57,6 +63,7 @@ class SmolVLM2Backend(VLMBackend):
         except TypeError:
             model_kwargs.pop("attn_implementation", None)
             model = AutoModelForImageTextToText.from_pretrained(model_id, **model_kwargs)
+        resize_model_embeddings_for_tokenizer(model, proc.tokenizer, tokenizer_extension)
 
         pad_id = proc.tokenizer.pad_token_id
         model.generation_config.pad_token_id = pad_id
@@ -71,12 +78,13 @@ class SmolVLM2Backend(VLMBackend):
             elif hasattr(model, "enable_input_require_grads"):
                 model.enable_input_require_grads()
             peft = LoraConfig(
-                r=int(lora_cfg.get("r", 8)),
-                lora_alpha=int(lora_cfg.get("alpha", 16)),
-                lora_dropout=float(lora_cfg.get("dropout", 0.05)),
-                bias="none",
-                target_modules=lora_cfg.get("target_modules", self.default_lora_target_modules()),
-                task_type="CAUSAL_LM",
+                **lora_config_kwargs(
+                    LoraConfig,
+                    model,
+                    lora_cfg,
+                    lora_cfg.get("target_modules", self.default_lora_target_modules()),
+                    tokenizer_extension,
+                )
             )
             model = get_peft_model(model, peft)
 

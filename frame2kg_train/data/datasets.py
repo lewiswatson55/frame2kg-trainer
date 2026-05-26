@@ -1,8 +1,11 @@
 from __future__ import annotations
-from typing import Optional, Tuple
+import os
+from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 from datasets import Dataset, Image as HFImage, load_dataset
+
+DEFAULT_DATASET_ID = "lewiswatson/Frame2KG-YC2"
 
 
 def _ensure_image_column(ds: Dataset) -> Dataset:
@@ -11,8 +14,36 @@ def _ensure_image_column(ds: Dataset) -> Dataset:
     return ds
 
 
-def load_frame2kg(seed: int = 42) -> Tuple[Dataset, Dataset, Optional[Dataset]]:
-    raw = load_dataset("lewiswatson/Frame2KG-YC2")
+def _dataset_token_arg(value: Any) -> Any:
+    if value in (None, False):
+        return None
+    if value is True:
+        return True
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"", "false", "none", "null", "0"}:
+            return None
+        if lowered in {"true", "1", "yes", "auto"}:
+            return True
+        if lowered == "env":
+            return os.getenv("HF_TOKEN") or os.getenv("HUGGINGFACE_HUB_TOKEN") or True
+    return value
+
+
+def load_frame2kg(
+    seed: int = 42,
+    dataset_id: str = DEFAULT_DATASET_ID,
+    dataset_config: str | None = None,
+    dataset_token: Any = None,
+) -> Tuple[Dataset, Dataset, Optional[Dataset]]:
+    load_kwargs: Dict[str, Any] = {}
+    token = _dataset_token_arg(dataset_token)
+    if token is not None:
+        load_kwargs["token"] = token
+    if dataset_config:
+        raw = load_dataset(dataset_id, dataset_config, **load_kwargs)
+    else:
+        raw = load_dataset(dataset_id, **load_kwargs)
     train = raw.get("training") or raw.get("train")
     if train is None:
         raise RuntimeError("No training split found.")

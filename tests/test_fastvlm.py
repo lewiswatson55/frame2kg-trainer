@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Dict, List
 
 import pytest
@@ -9,7 +11,10 @@ from PIL import Image
 
 from frame2kg_train.backends.base import BackendArtifacts
 from frame2kg_train.backends.fastvlm import FastVLMBackend
+from frame2kg_train.backends.tokenizer_extension import TokenizerExtension, add_tokens_from_config
 from frame2kg_train.data.collators import FastVLMDataCollator, graph_to_json_text
+from frame2kg_train.data.graph_formats import COMPRESSED_GRAPH_TOKENS, compressed_graph_to_json
+from frame2kg_train.train.callbacks import SaveAdaptersCallback
 from frame2kg_train.train.registry import get_backend
 
 
@@ -159,6 +164,149 @@ def test_fastvlm_collator_masks_only_assistant_json_tokens():
         trainable_ids = inputs["input_ids"][row_index][trainable_mask].tolist()
         assert not ({0, 2, 10, 11, 99} & set(trainable_ids))
         assert proc.tokenizer.decode_text(trainable_ids) == graph_to_json_text(graph, "nodes_first")
+
+
+def test_fastvlm_collator_can_train_compressed_graph_strings():
+    proc = FakeProcessor()
+    collator = FastVLMDataCollator(proc, target_format="compressed_tokens")
+    image = Image.new("RGB", (8, 8), "white")
+    graph = (
+        "<|graph|><|nodes|><|node|><|id|>n1<|label|>frame"
+        "<|bbox|>0 0 1 1<|conf|>0.9<|attrs|>size=small"
+        "<|edges|><|end_graph|>"
+    )
+
+    inputs = collator([{"image": image, "graph": graph, "mode": "train"}])
+
+    trainable_mask = inputs["labels"][0] != -100
+    assert trainable_mask.any()
+    trainable_ids = inputs["input_ids"][0][trainable_mask].tolist()
+    assert proc.tokenizer.decode_text(trainable_ids) == graph
+
+
+def test_compressed_graph_parser_returns_metric_shape():
+    graph = (
+        "<|graph|><|nodes|><|node|><|id|>person1<|label|>man"
+        "<|bbox|>0.0 0.2 0.45 0.95<|conf|>0.9"
+        "<|attrs|>appearance=white cotton<|attrs|>size=medium"
+        "<|edges|><|edge|><|src|>person1<|pred|>left_of<|tgt|>desk"
+        "<|end_graph|>"
+    )
+
+    parsed = compressed_graph_to_json(graph)
+
+    assert parsed == {
+        "nodes": [
+            {
+                "id": "person1",
+                "label": "man",
+                "location": "0.0 0.2 0.45 0.95",
+                "confidence": "0.9",
+                "attributes": {"appearance": "white cotton", "size": "medium"},
+            }
+        ],
+        "edges": [{"source": "person1", "predicate": "left_of", "target": "desk"}],
+    }
+
+
+class FakeAddedTokenizer:
+    unk_token_id = -1
+
+    def __init__(self):
+        self.vocab = {"base": 0}
+        self.added_order: List[str] = []
+
+    def __len__(self):
+        return len(self.vocab)
+
+    def _token_text(self, token) -> str:
+        return str(getattr(token, "content", token))
+
+    def add_tokens(self, tokens, special_tokens=False):
+        assert special_tokens is False
+        added = 0
+        for token in tokens:
+            token = self._token_text(token)
+            if token not in self.vocab:
+                self.vocab[token] = len(self.vocab)
+                self.added_order.append(token)
+                added += 1
+        return added
+
+    def convert_tokens_to_ids(self, token: str) -> int:
+        return self.vocab.get(token, self.unk_token_id)
+
+    def encode(self, text: str, add_special_tokens: bool = False) -> List[int]:
+        assert add_special_tokens is False
+        if text in self.vocab:
+            return [self.vocab[text]]
+        return [1000 + ord(ch) for ch in text]
+
+
+def test_compressed_tokens_are_added_as_single_non_special_tokens():
+    tokenizer = FakeAddedTokenizer()
+
+    extension = add_tokens_from_config(tokenizer, {"target_format": "compressed_tokens"})
+
+    assert extension.tokens == COMPRESSED_GRAPH_TOKENS
+    assert extension.added_count == len(COMPRESSED_GRAPH_TOKENS)
+    assert extension.token_ids == [tokenizer.convert_tokens_to_ids(token) for token in COMPRESSED_GRAPH_TOKENS]
+    for token in COMPRESSED_GRAPH_TOKENS:
+        assert tokenizer.encode(token, add_special_tokens=False) == [tokenizer.convert_tokens_to_ids(token)]
+
+
+def test_adapter_checkpoint_can_include_processor_and_token_manifest(tmp_path, monkeypatch):
+    class FakeModel:
+        def save_pretrained(self, path):
+            (Path(path) / "adapter_model.safetensors").write_text("adapter")
+
+    class FakeProc:
+        def save_pretrained(self, path):
+            (Path(path) / "tokenizer_config.json").write_text("{}")
+
+    class FakeArtifact:
+        def __init__(self, *args, **kwargs):
+            self.dirs = []
+
+        def add_dir(self, path):
+            self.dirs.append(path)
+
+    class FakeSaveTokenizer:
+        _frame2kg_tokenizer_extension = TokenizerExtension(
+            target_format="compressed_tokens",
+            tokens=["<|graph|>"],
+            token_ids=[123],
+            added_count=1,
+        )
+
+        def save_pretrained(self, path):
+            (Path(path) / "tokenizer.json").write_text("{}")
+
+    tokenizer = FakeSaveTokenizer()
+    logged = []
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "wandb",
+        SimpleNamespace(Artifact=FakeArtifact, log_artifact=lambda artifact, aliases=None: logged.append((artifact, aliases))),
+    )
+
+    callback = SaveAdaptersCallback(
+        proc=FakeProc(),
+        tokenizer=tokenizer,
+        max_new_tokens=128,
+        include_processor=True,
+    )
+    args = SimpleNamespace(output_dir=str(tmp_path), run_name="run")
+    state = SimpleNamespace(global_step=7)
+
+    callback.on_save(args, state, SimpleNamespace(), model=FakeModel())
+
+    checkpoint_dir = tmp_path / "adapters-step-7"
+    assert (checkpoint_dir / "adapter_model.safetensors").exists()
+    assert (checkpoint_dir / "tokenizer_config.json").exists()
+    assert (checkpoint_dir / "tokenizer.json").exists()
+    assert (checkpoint_dir / "frame2kg_tokenizer_extension.json").exists()
+    assert logged
 
 
 def test_fastvlm_generation_strips_prompt_tokens():
