@@ -7,6 +7,11 @@ import json as _json
 from transformers import EvalPrediction
 
 from frame2kg_train.eval.json_utils import first_json_object, normalise_json_text, slice_from_assistant
+from frame2kg_train.data.graph_formats import (
+    COMPRESSED_TOKENS_TARGET_FORMAT,
+    compressed_graph_to_json,
+    normalise_target_format,
+)
 
 
 def to_box(loc) -> Tuple[float, float, float, float]:
@@ -145,7 +150,8 @@ def _sanitize(mat, pad_id:int):
     return out
 
 
-def make_compute_metrics(tokenizer):
+def make_compute_metrics(tokenizer, target_format: str = "json"):
+    target_format = normalise_target_format(target_format)
     # Toggle verbose logs with env vars (or flip defaults here)
     DEBUG = os.getenv("F2KG_DEBUG_METRICS", "0").lower() not in ("0", "false", "no")
     SHOW_LABELS = os.getenv("F2KG_DEBUG_SHOW_LABELS", "0").lower() in ("1", "true", "yes")
@@ -181,9 +187,12 @@ def make_compute_metrics(tokenizer):
         label_ok = []
         for i, l_txt in enumerate(label_str):
             try:
-                lj = first_json_object(l_txt)
-                if lj is None:
-                    lj = _json.loads(l_txt)  # allow pure JSON string
+                if target_format == COMPRESSED_TOKENS_TARGET_FORMAT:
+                    lj = compressed_graph_to_json(l_txt)
+                else:
+                    lj = first_json_object(l_txt)
+                    if lj is None:
+                        lj = _json.loads(l_txt)  # allow pure JSON string
             except Exception:
                 lj = None
             label_jsons.append(lj)
@@ -202,7 +211,10 @@ def make_compute_metrics(tokenizer):
         pred_jsons = []
         json_ok = []
         for i, p_txt in enumerate(pred_str):
-            pj = first_json_object(p_txt)
+            if target_format == COMPRESSED_TOKENS_TARGET_FORMAT:
+                pj = compressed_graph_to_json(p_txt)
+            else:
+                pj = first_json_object(p_txt)
             pred_jsons.append(pj)
             json_ok.append(1 if pj is not None else 0)
             if DEBUG:
@@ -252,5 +264,4 @@ def make_compute_metrics(tokenizer):
             "scored_examples": len(nP),
         }
     return compute
-
 

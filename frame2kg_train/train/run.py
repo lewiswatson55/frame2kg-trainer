@@ -16,7 +16,14 @@ from frame2kg_train.train.callbacks import PeriodicEvalCallback, CustomWandbCall
 from frame2kg_train.train.registry import get_backend
 from frame2kg_train.data.datasets import load_frame2kg
 from frame2kg_train.eval.metrics import make_compute_metrics
-from frame2kg_train.data.collators import SYSTEM_PROMPT, graph_to_json_text, normalise_graph_key_order
+from frame2kg_train.backends.tokenizer_extension import save_tokenizer_extension_manifest
+from frame2kg_train.data.graph_formats import (
+    graph_to_target_text,
+    normalise_graph_key_order,
+    normalise_target_format,
+    system_prompt_for_target_format,
+    user_prompt_for_target_format,
+)
 
 def _post_run_wait_and_shutdown(cfg: Dict[str, Any], *, run_failed: bool) -> None:
     shutdown_cfg = cfg.get("auto_shutdown", True)
@@ -86,6 +93,9 @@ class Runner:
         skip_eval = bool(self.cfg.get("skip_eval", False))
         model_id = self.cfg.get("model_id", "Qwen/Qwen2.5-VL-3B-Instruct")
         graph_key_order = normalise_graph_key_order(self.cfg.get("graph_key_order", "dataset"))
+        target_format = normalise_target_format(self.cfg.get("target_format", "json"))
+        system_prompt = self.cfg.get("system_prompt") or system_prompt_for_target_format(target_format)
+        user_prompt = self.cfg.get("user_prompt") or user_prompt_for_target_format(target_format)
         run_ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
         base_run_name = self.cfg.get("run_name", "frame2kg")
         run_name = f"{base_run_name}-{run_ts}"
@@ -97,6 +107,7 @@ class Runner:
         try:
             wandb_cfg = dict(self.cfg)
             wandb_cfg["graph_key_order"] = graph_key_order # adding to show order used for reproducability
+            wandb_cfg["target_format"] = target_format
             wandb.init(
                 project=self.cfg["wandb"]["project"],
                 entity=self.cfg["wandb"].get("entity"),
@@ -109,16 +120,27 @@ class Runner:
             artifacts = backend.load(self.cfg)
             if hasattr(artifacts.collator, "graph_key_order"):
                 setattr(artifacts.collator, "graph_key_order", graph_key_order)
+            if hasattr(artifacts.collator, "target_format"):
+                setattr(artifacts.collator, "target_format", target_format)
+            if hasattr(artifacts.collator, "system_prompt"):
+                setattr(artifacts.collator, "system_prompt", system_prompt)
+            if hasattr(artifacts.collator, "user_prompt"):
+                setattr(artifacts.collator, "user_prompt", user_prompt)
 
             compute_metrics = None
 
-            train_ds, eval_ds, test_ds = load_frame2kg(seed)
+            train_ds, eval_ds, test_ds = load_frame2kg(
+                seed,
+                dataset_id=str(self.cfg.get("dataset_id", self.cfg.get("dataset_name", "lewiswatson/Frame2KG-YC2"))),
+                dataset_config=self.cfg.get("dataset_config"),
+                dataset_token=self.cfg.get("dataset_token"),
+            )
             train_ds = train_ds.add_column("mode", ["train"] * len(train_ds))
 
             if not skip_eval:
                 if eval_ds is None:
                     raise RuntimeError("Validation split not found.")
-                compute_metrics = make_compute_metrics(artifacts.tokenizer)
+                compute_metrics = make_compute_metrics(artifacts.tokenizer, target_format=target_format)
                 # subset for quick eval
                 k = int(self.cfg.get("eval_sample_k", 3))
                 mode = str(self.cfg.get("eval_sample_mode", "random")).lower()
@@ -132,7 +154,9 @@ class Runner:
                     eval_ds = eval_ds.select(idx)
                 eval_ds = eval_ds.add_column("mode", ["eval"] * len(eval_ds))
                 # Attach pre‑stringified GT for metrics
-                compute_metrics._eval_label_texts = [graph_to_json_text(r["graph"], graph_key_order) for r in eval_ds]  # type: ignore[attr-defined]
+                compute_metrics._eval_label_texts = [
+                    graph_to_target_text(r["graph"], graph_key_order, target_format) for r in eval_ds
+                ]  # type: ignore[attr-defined]
             else:
                 eval_ds = None
 
@@ -180,11 +204,21 @@ class Runner:
                 backend=backend,
                 artifacts=artifacts,
                 eval_ds=eval_ds,
-                system_prompt=SYSTEM_PROMPT,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
                 max_new_tokens=max_new,
                 graph_key_order=graph_key_order,
+                target_format=target_format,
             )
-            save_adapters_cb = SaveAdaptersCallback(proc=artifacts.processor, max_new_tokens=max_new)
+            include_processor_in_checkpoints = bool(
+                self.cfg.get("include_processor_in_adapter_checkpoints", target_format != "json")
+            )
+            save_adapters_cb = SaveAdaptersCallback(
+                proc=artifacts.processor,
+                tokenizer=artifacts.tokenizer,
+                max_new_tokens=max_new,
+                include_processor=include_processor_in_checkpoints,
+            )
             callbacks = [wandb_cb, save_adapters_cb]
             if not skip_eval:
                 periodic_eval = PeriodicEvalCallback(every_steps=int(self.cfg.get("eval_steps", 20)))
@@ -217,6 +251,9 @@ class Runner:
             artifacts.model.save_pretrained(adapters_dir)
             if artifacts.processor is not None:
                 artifacts.processor.save_pretrained(adapters_dir)
+            if artifacts.tokenizer is not None:
+                artifacts.tokenizer.save_pretrained(adapters_dir)
+            save_tokenizer_extension_manifest(artifacts.tokenizer, adapters_dir)
 
             # Final eval
             if not skip_eval:
@@ -240,6 +277,9 @@ class Runner:
                     merged.save_pretrained(merged_dir)
                     if artifacts.processor is not None:
                         artifacts.processor.save_pretrained(merged_dir)
+                    if artifacts.tokenizer is not None:
+                        artifacts.tokenizer.save_pretrained(merged_dir)
+                    save_tokenizer_extension_manifest(artifacts.tokenizer, merged_dir)
                 except Exception as e:
                     print(f"Merge failed: {e}")
 

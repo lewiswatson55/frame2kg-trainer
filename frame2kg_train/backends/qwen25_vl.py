@@ -12,6 +12,11 @@ from transformers import (
 from PIL import Image
 
 from frame2kg_train.backends.base import VLMBackend, BackendArtifacts
+from frame2kg_train.backends.tokenizer_extension import (
+    add_tokens_from_config,
+    lora_config_kwargs,
+    resize_model_embeddings_for_tokenizer,
+)
 from frame2kg_train.data.collators import QwenVLDataCollator
 
 
@@ -48,6 +53,7 @@ class Qwen25VLBackend(VLMBackend):
         if proc.tokenizer.pad_token is None:
             proc.tokenizer.pad_token = proc.tokenizer.eos_token
         proc.tokenizer.padding_side = "left"
+        tokenizer_extension = add_tokens_from_config(proc.tokenizer, cfg)
 
         # Model
         model_kwargs: Dict[str, Any] = {}
@@ -109,6 +115,7 @@ class Qwen25VLBackend(VLMBackend):
             )
         model_param_dtype = next(model.parameters()).dtype
         print(f"[backend:{self.name}] loaded model parameter dtype={model_param_dtype}")
+        resize_model_embeddings_for_tokenizer(model, proc.tokenizer, tokenizer_extension)
 
         pad_id = proc.tokenizer.pad_token_id
         model.generation_config.pad_token_id = pad_id
@@ -124,12 +131,13 @@ class Qwen25VLBackend(VLMBackend):
             elif hasattr(model, "enable_input_require_grads"):
                 model.enable_input_require_grads()
             peft = LoraConfig(
-                r=int(lora_cfg.get("r", 8)),
-                lora_alpha=int(lora_cfg.get("alpha", 16)),
-                lora_dropout=float(lora_cfg.get("dropout", 0.05)),
-                bias="none",
-                target_modules=lora_cfg.get("target_modules", self.default_lora_target_modules()),
-                task_type="CAUSAL_LM",
+                **lora_config_kwargs(
+                    LoraConfig,
+                    model,
+                    lora_cfg,
+                    lora_cfg.get("target_modules", self.default_lora_target_modules()),
+                    tokenizer_extension,
+                )
             )
             model = get_peft_model(model, peft)
 

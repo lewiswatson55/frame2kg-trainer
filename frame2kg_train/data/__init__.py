@@ -1,5 +1,6 @@
 from .datasets import load_frame2kg
 from .collators import FastVLMDataCollator, QwenVLDataCollator, SmolVLMDataCollator, SYSTEM_PROMPT, graph_to_json_text
+from .graph_formats import COMPRESSED_GRAPH_TOKENS, graph_to_target_text
 
 __all__ = [
     "load_frame2kg",
@@ -7,5 +8,7 @@ __all__ = [
     "QwenVLDataCollator",
     "SmolVLMDataCollator",
     "SYSTEM_PROMPT",
+    "COMPRESSED_GRAPH_TOKENS",
     "graph_to_json_text",
+    "graph_to_target_text",
 ]

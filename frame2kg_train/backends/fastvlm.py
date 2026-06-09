@@ -7,6 +7,11 @@ import torch
 from PIL import Image
 
 from frame2kg_train.backends.base import BackendArtifacts, VLMBackend
+from frame2kg_train.backends.tokenizer_extension import (
+    add_tokens_from_config,
+    lora_config_kwargs,
+    resize_model_embeddings_for_tokenizer,
+)
 from frame2kg_train.data.collators import FastVLMDataCollator
 
 
@@ -33,6 +38,7 @@ class FastVLMBackend(VLMBackend):
         if proc.tokenizer.pad_token is None:
             proc.tokenizer.pad_token = proc.tokenizer.eos_token
         proc.tokenizer.padding_side = "left"
+        tokenizer_extension = add_tokens_from_config(proc.tokenizer, cfg)
 
         model_kwargs: Dict[str, Any] = {}
         decoder_attn_impl = self._decoder_attention_implementation(attn_impl)
@@ -88,6 +94,7 @@ class FastVLMBackend(VLMBackend):
 
         model_param_dtype = next(model.parameters()).dtype
         print(f"[backend:{self.name}] loaded model parameter dtype={model_param_dtype}")
+        resize_model_embeddings_for_tokenizer(model, proc.tokenizer, tokenizer_extension)
 
         self._set_pad_token_id(model, proc.tokenizer.pad_token_id)
         model.generation_config.do_sample = False
@@ -111,12 +118,13 @@ class FastVLMBackend(VLMBackend):
                 model.enable_input_require_grads()
 
             peft = LoraConfig(
-                r=int(lora_cfg.get("r", 8)),
-                lora_alpha=int(lora_cfg.get("alpha", 16)),
-                lora_dropout=float(lora_cfg.get("dropout", 0.05)),
-                bias="none",
-                target_modules=resolved_target_modules,
-                task_type="CAUSAL_LM",
+                **lora_config_kwargs(
+                    LoraConfig,
+                    model,
+                    lora_cfg,
+                    resolved_target_modules,
+                    tokenizer_extension,
+                )
             )
             model = get_peft_model(model, peft)
             if hasattr(model, "print_trainable_parameters"):
