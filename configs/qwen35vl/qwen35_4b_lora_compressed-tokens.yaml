@@ -6,7 +6,7 @@ max_pixels: 878080
 load_in_4bit: false
 disable_thinking: true
 target_format: compressed_tokens
-dataset_id: lewiswatson/Frame2KG-YC2-special-tokens
+dataset_id: lewiswatson/Frame2KG-YC2-compressed-tokens
 dataset_token: true
 graph_key_order: dataset
 include_processor_in_adapter_checkpoints: true
