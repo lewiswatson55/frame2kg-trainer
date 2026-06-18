@@ -139,7 +139,53 @@ def _same_weight(left: Any, right: Any) -> bool:
         return False
 
 
+def _get_module_by_path(root: Any, path: str) -> Any | None:
+    current = root
+    for part in path.split("."):
+        if not hasattr(current, part):
+            return None
+        current = getattr(current, part)
+    return current
+
+
+def _is_internvl_model(model: Any) -> bool:
+    candidates: List[Any] = [model.__class__.__name__]
+    config = getattr(model, "config", None)
+    if config is not None:
+        candidates.append(getattr(config, "model_type", None))
+        candidates.append(getattr(config, "architectures", None))
+        text_config = getattr(config, "text_config", None)
+        if text_config is not None:
+            candidates.append(getattr(text_config, "model_type", None))
+            candidates.append(getattr(text_config, "architectures", None))
+    return any("internvl" in str(candidate).lower() for candidate in candidates if candidate is not None)
+
+
+def _internvl_trainable_token_indices(
+    model: Any,
+    token_ids: List[int],
+) -> Dict[str, List[int]] | None:
+    if not _is_internvl_model(model):
+        return None
+
+    input_embeddings = _get_module_by_path(model, "model.language_model.embed_tokens")
+    output_embeddings = _get_module_by_path(model, "lm_head")
+    if input_embeddings is None or output_embeddings is None:
+        return None
+    if not hasattr(input_embeddings, "weight") or not hasattr(output_embeddings, "weight"):
+        return None
+
+    return {
+        "model.language_model.embed_tokens": token_ids,
+        "lm_head": token_ids,
+    }
+
+
 def _trainable_token_indices_for_model(model: Any, token_ids: List[int]) -> List[int] | Dict[str, List[int]]:
+    internvl_indices = _internvl_trainable_token_indices(model, token_ids)
+    if internvl_indices is not None:
+        return internvl_indices
+
     input_embeddings = model.get_input_embeddings() if hasattr(model, "get_input_embeddings") else None
     output_embeddings = model.get_output_embeddings() if hasattr(model, "get_output_embeddings") else None
     if output_embeddings is None or input_embeddings is None or _same_weight(input_embeddings, output_embeddings):
