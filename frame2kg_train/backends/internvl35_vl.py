@@ -17,7 +17,6 @@ from frame2kg_train.backends.internvl35_targets import (
     resolve_text_decoder_target_modules,
 )
 from frame2kg_train.backends.tokenizer_extension import (
-    _get_module_by_path,
     add_tokens_from_config,
     lora_config_kwargs,
     resize_model_embeddings_for_tokenizer,
@@ -139,7 +138,7 @@ class InternVL35Backend(VLMBackend):
                 # (it assumes updating the input embedding covers the tied output), so the output
                 # head never learns the new compressed-graph tokens and the adapter is broken.
                 # Tell PEFT the truth before building the adapter.
-                self._untie_word_embeddings_if_independent(model)
+                self._disable_word_embedding_tying(model)
                 peft_kwargs["trainable_token_indices"] = self._internvl_trainable_token_indices(
                     tokenizer_extension.token_ids
                 )
@@ -233,22 +232,16 @@ class InternVL35Backend(VLMBackend):
             "lm_head": list(token_ids),
         }
 
-    def _untie_word_embeddings_if_independent(self, model: Any) -> None:
-        """If embed_tokens and lm_head are independent tensors but the config claims they are
-        tied, set tie_word_embeddings=False so PEFT will train an lm_head trainable-tokens delta.
+    def _disable_word_embedding_tying(self, model: Any) -> None:
+        """InternVL3.5-HF declares tie_word_embeddings=True but ships an independent lm_head
+        (the checkpoint stores different input/output embedding weights). While the config flag
+        is True, PEFT refuses to create a trainable-tokens delta for lm_head, so the output head
+        never learns newly-added tokens and the adapter is broken.
 
-        No-op when the weights are genuinely shared (a single delta is then correct), so models
-        with real weight tying are left untouched.
+        We must clear the flag unconditionally: ``resize_token_embeddings`` re-ties the tensors
+        whenever the flag is set, so a data_ptr / tensor-identity check is unreliable here. PEFT
+        decides whether to wrap lm_head purely from this config flag.
         """
-        emb = _get_module_by_path(model, "model.language_model.embed_tokens")
-        head = _get_module_by_path(model, "lm_head")
-        emb_w = getattr(emb, "weight", None) if emb is not None else None
-        head_w = getattr(head, "weight", None) if head is not None else None
-        if emb_w is None or head_w is None:
-            return
-        if emb_w.data_ptr() == head_w.data_ptr():
-            return  # genuinely tied -> shared delta is correct, leave the config alone
-
         changed = False
         for cfg_obj in (getattr(model, "config", None), getattr(getattr(model, "config", None), "text_config", None)):
             if cfg_obj is not None and getattr(cfg_obj, "tie_word_embeddings", False):
@@ -256,8 +249,8 @@ class InternVL35Backend(VLMBackend):
                 changed = True
         if changed:
             print(
-                f"[backend:{self.name}] embed_tokens and lm_head are independent tensors; "
-                f"set tie_word_embeddings=False so PEFT trains lm_head compressed-token deltas"
+                f"[backend:{self.name}] set tie_word_embeddings=False so PEFT trains lm_head "
+                f"compressed-token deltas"
             )
 
     def _active_peft_config(self, model: Any) -> Any:
