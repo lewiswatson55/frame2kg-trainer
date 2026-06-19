@@ -252,3 +252,72 @@ def save_tokenizer_extension_manifest(tokenizer: Any, output_dir: str) -> None:
             ensure_ascii=False,
             indent=2,
         )
+
+
+def _adapter_config_is_internvl(adapter_config: Dict[str, Any]) -> bool:
+    candidates = [
+        adapter_config.get("base_model_name_or_path"),
+        adapter_config.get("auto_mapping"),
+    ]
+    return any("internvl" in str(candidate).lower() for candidate in candidates if candidate is not None)
+
+
+def verify_saved_tokenizer_extension_adapter(tokenizer: Any, output_dir: str) -> None:
+    extension = getattr(tokenizer, "_frame2kg_tokenizer_extension", None)
+    if not extension or not getattr(extension, "enabled", False):
+        return
+
+    adapter_config_path = os.path.join(output_dir, "adapter_config.json")
+    if not os.path.exists(adapter_config_path):
+        return
+
+    with open(adapter_config_path, "r", encoding="utf-8") as f:
+        adapter_config = json.load(f)
+    if not _adapter_config_is_internvl(adapter_config):
+        return
+
+    required_modules = {"model.language_model.embed_tokens", "lm_head"}
+    trainable_token_indices = adapter_config.get("trainable_token_indices")
+    if not isinstance(trainable_token_indices, dict) or not required_modules.issubset(trainable_token_indices):
+        raise RuntimeError(
+            "Saved InternVL compressed-token adapter is missing trainable token indices for "
+            f"{sorted(required_modules)} in {adapter_config_path}: {trainable_token_indices!r}"
+        )
+
+    expected_token_ids = [int(token_id) for token_id in extension.token_ids]
+    for module_name in sorted(required_modules):
+        saved_token_ids = [int(token_id) for token_id in trainable_token_indices[module_name]]
+        if saved_token_ids != expected_token_ids:
+            raise RuntimeError(
+                f"Saved InternVL compressed-token adapter has wrong token ids for {module_name}: "
+                f"expected {expected_token_ids}, got {saved_token_ids}"
+            )
+
+    adapter_weights_path = os.path.join(output_dir, "adapter_model.safetensors")
+    if not os.path.exists(adapter_weights_path):
+        return
+
+    try:
+        from safetensors import safe_open
+    except Exception as exc:
+        raise RuntimeError(
+            f"Cannot verify saved InternVL compressed-token weights in {adapter_weights_path} "
+            "because safetensors is not importable"
+        ) from exc
+
+    with safe_open(adapter_weights_path, framework="pt", device="cpu") as f:
+        weight_keys = list(f.keys())
+    required_key_fragments = [
+        "language_model.embed_tokens.token_adapter.trainable_tokens_delta",
+        "lm_head.token_adapter.trainable_tokens_delta",
+    ]
+    missing_fragments = [
+        fragment
+        for fragment in required_key_fragments
+        if not any(fragment in weight_key for weight_key in weight_keys)
+    ]
+    if missing_fragments:
+        raise RuntimeError(
+            f"Saved InternVL compressed-token adapter is missing token delta weights in {adapter_weights_path}: "
+            f"{missing_fragments}"
+        )

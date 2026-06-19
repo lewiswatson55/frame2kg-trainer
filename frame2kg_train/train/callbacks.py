@@ -9,7 +9,10 @@ from datasets import Dataset
 from PIL import Image
 from transformers import TrainerCallback
 
-from frame2kg_train.backends.tokenizer_extension import save_tokenizer_extension_manifest
+from frame2kg_train.backends.tokenizer_extension import (
+    save_tokenizer_extension_manifest,
+    verify_saved_tokenizer_extension_adapter,
+)
 from frame2kg_train.data.graph_formats import (
     COMPRESSED_TOKENS_TARGET_FORMAT,
     compressed_graph_to_json,
@@ -51,6 +54,8 @@ class SaveAdaptersCallback(TrainerCallback):
                 self.tokenizer.save_pretrained(tmp_dir)
             if self.tokenizer is not None:
                 save_tokenizer_extension_manifest(self.tokenizer, tmp_dir)
+        if self.tokenizer is not None:
+            verify_saved_tokenizer_extension_adapter(self.tokenizer, tmp_dir)
         metrics=kwargs.get("metrics") or {}
         with open(os.path.join(tmp_dir, "checkpoint_info.json"), "w", encoding="utf-8") as f:
             json.dump({"global_step": step, "event": "on_save", "max_new_tokens": self.max_new_tokens, "metrics": metrics}, f, ensure_ascii=False, indent=2)

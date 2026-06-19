@@ -16,7 +16,10 @@ from frame2kg_train.train.callbacks import PeriodicEvalCallback, CustomWandbCall
 from frame2kg_train.train.registry import get_backend
 from frame2kg_train.data.datasets import load_frame2kg
 from frame2kg_train.eval.metrics import make_compute_metrics
-from frame2kg_train.backends.tokenizer_extension import save_tokenizer_extension_manifest
+from frame2kg_train.backends.tokenizer_extension import (
+    save_tokenizer_extension_manifest,
+    verify_saved_tokenizer_extension_adapter,
+)
 from frame2kg_train.data.graph_formats import (
     graph_to_target_text,
     normalise_graph_key_order,
@@ -254,6 +257,7 @@ class Runner:
             if artifacts.tokenizer is not None:
                 artifacts.tokenizer.save_pretrained(adapters_dir)
             save_tokenizer_extension_manifest(artifacts.tokenizer, adapters_dir)
+            verify_saved_tokenizer_extension_adapter(artifacts.tokenizer, adapters_dir)
 
             # Final eval
             if not skip_eval:

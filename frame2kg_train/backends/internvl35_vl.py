@@ -17,6 +17,7 @@ from frame2kg_train.backends.internvl35_targets import (
     resolve_text_decoder_target_modules,
 )
 from frame2kg_train.backends.tokenizer_extension import (
+    _get_module_by_path,
     add_tokens_from_config,
     lora_config_kwargs,
     resize_model_embeddings_for_tokenizer,
@@ -124,16 +125,42 @@ class InternVL35Backend(VLMBackend):
             elif hasattr(model, "enable_input_require_grads"):
                 model.enable_input_require_grads()
 
-            peft = LoraConfig(
-                **lora_config_kwargs(
-                    LoraConfig,
-                    model,
-                    lora_cfg,
-                    resolved_target_modules,
-                    tokenizer_extension,
-                )
+            peft_kwargs = lora_config_kwargs(
+                LoraConfig,
+                model,
+                lora_cfg,
+                resolved_target_modules,
+                tokenizer_extension,
             )
+            if tokenizer_extension.enabled:
+                # InternVL3.5-HF ships tie_word_embeddings=True in its config, but the actual
+                # input embedding and lm_head weights are independent tensors. PEFT trusts the
+                # config flag and then refuses to create a trainable-tokens delta for lm_head
+                # (it assumes updating the input embedding covers the tied output), so the output
+                # head never learns the new compressed-graph tokens and the adapter is broken.
+                # Tell PEFT the truth before building the adapter.
+                self._untie_word_embeddings_if_independent(model)
+                peft_kwargs["trainable_token_indices"] = self._internvl_trainable_token_indices(
+                    tokenizer_extension.token_ids
+                )
+                # Embeddings are independent, so there is nothing to tie; leaving this True makes
+                # PEFT drop the lm_head delta again.
+                peft_kwargs["ensure_weight_tying"] = False
+                print(
+                    f"[backend:{self.name}] forcing compressed-token trainable indices for "
+                    f"{list(peft_kwargs['trainable_token_indices'])}"
+                )
+
+            peft = LoraConfig(**peft_kwargs)
+            if tokenizer_extension.enabled:
+                self._validate_internvl_trainable_token_indices(peft.trainable_token_indices)
+
             model = get_peft_model(model, peft)
+            if tokenizer_extension.enabled:
+                active_peft_config = self._active_peft_config(model)
+                self._validate_internvl_trainable_token_indices(
+                    getattr(active_peft_config, "trainable_token_indices", None)
+                )
             adapted_target_modules = self._collect_lora_wrapped_module_names(model, resolved_target_modules)
             self._validate_lora_wrapped_target_modules(
                 model_id=model_id,
@@ -199,6 +226,64 @@ class InternVL35Backend(VLMBackend):
         text_config = getattr(model.config, "text_config", None)
         if text_config is not None and hasattr(text_config, "pad_token_id"):
             text_config.pad_token_id = pad_id
+
+    def _internvl_trainable_token_indices(self, token_ids: List[int]) -> Dict[str, List[int]]:
+        return {
+            "model.language_model.embed_tokens": list(token_ids),
+            "lm_head": list(token_ids),
+        }
+
+    def _untie_word_embeddings_if_independent(self, model: Any) -> None:
+        """If embed_tokens and lm_head are independent tensors but the config claims they are
+        tied, set tie_word_embeddings=False so PEFT will train an lm_head trainable-tokens delta.
+
+        No-op when the weights are genuinely shared (a single delta is then correct), so models
+        with real weight tying are left untouched.
+        """
+        emb = _get_module_by_path(model, "model.language_model.embed_tokens")
+        head = _get_module_by_path(model, "lm_head")
+        emb_w = getattr(emb, "weight", None) if emb is not None else None
+        head_w = getattr(head, "weight", None) if head is not None else None
+        if emb_w is None or head_w is None:
+            return
+        if emb_w.data_ptr() == head_w.data_ptr():
+            return  # genuinely tied -> shared delta is correct, leave the config alone
+
+        changed = False
+        for cfg_obj in (getattr(model, "config", None), getattr(getattr(model, "config", None), "text_config", None)):
+            if cfg_obj is not None and getattr(cfg_obj, "tie_word_embeddings", False):
+                cfg_obj.tie_word_embeddings = False
+                changed = True
+        if changed:
+            print(
+                f"[backend:{self.name}] embed_tokens and lm_head are independent tensors; "
+                f"set tie_word_embeddings=False so PEFT trains lm_head compressed-token deltas"
+            )
+
+    def _active_peft_config(self, model: Any) -> Any:
+        peft_config = getattr(model, "peft_config", None)
+        if not isinstance(peft_config, dict) or not peft_config:
+            return None
+
+        active_adapter = getattr(model, "active_adapter", None)
+        if callable(active_adapter):
+            active_adapter = active_adapter()
+        if isinstance(active_adapter, (list, tuple)):
+            active_adapter = active_adapter[0] if active_adapter else None
+
+        return peft_config.get(active_adapter) or peft_config.get("default") or next(iter(peft_config.values()))
+
+    def _validate_internvl_trainable_token_indices(self, trainable_token_indices: Any) -> None:
+        required = {"model.language_model.embed_tokens", "lm_head"}
+        if not isinstance(trainable_token_indices, dict) or not required.issubset(trainable_token_indices):
+            raise RuntimeError(
+                f"[backend:{self.name}] InternVL compressed-token training must save trainable token deltas for "
+                f"{sorted(required)}, got {trainable_token_indices!r}. Refusing to train a broken adapter."
+            )
+        print(
+            f"[backend:{self.name}] verified compressed-token trainable indices include "
+            f"{sorted(trainable_token_indices)}"
+        )
 
     def _collect_lora_wrapped_module_names(self, model: Any, resolved_target_modules: List[str]) -> List[str]:
         variant_to_original: Dict[str, str] = {}
