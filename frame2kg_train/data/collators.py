@@ -415,22 +415,29 @@ class InternVL35DataCollator:
         return chat
 
     def _processor_call(self, texts: List[str], images: List[Image.Image]):
-        kwargs: Dict[str, Any] = {
+        base: Dict[str, Any] = {
             "text": texts,
             "images": images,
             "return_tensors": "pt",
             "padding": True,
+        }
+        image_kwargs = {
             "crop_to_patches": self.crop_to_patches,
             "min_patches": self.min_patches,
             "max_patches": self.max_patches,
         }
+        # Preferred: route the tiling options through the typed `images_kwargs` dict. This is the
+        # transformers-supported path and applies identical tiling without the deprecation warning
+        # ("Kwargs passed to processor.__call__ have to be in processor_kwargs dict, not in **kwargs").
         try:
-            return self.proc(**kwargs)
+            return self.proc(**base, images_kwargs=image_kwargs)
+        except (TypeError, ValueError):
+            pass
+        # Back-compat: older processors accept the tiling options as top-level kwargs (warns but works).
+        try:
+            return self.proc(**base, **image_kwargs)
         except TypeError:
-            kwargs.pop("crop_to_patches", None)
-            kwargs.pop("min_patches", None)
-            kwargs.pop("max_patches", None)
-            return self.proc(**kwargs)
+            return self.proc(**base)
 
     def __call__(self, batch: List[Dict[str, Any]]):
         images = [self._to_pil(b["image"]) for b in batch]
