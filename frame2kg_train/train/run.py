@@ -198,6 +198,8 @@ class Runner:
                 "generation_prompt_buffer": generation_prompt_buffer,
                 "generation_max_length": generation_max_length,
             }
+            if "max_steps" in self.cfg:
+                common["max_steps"] = int(self.cfg["max_steps"])
             training_args = build_seq2seq_training_args(common, max_new_tokens=max_new, do_eval=not skip_eval)
 
             wandb_cb = CustomWandbCallback(
