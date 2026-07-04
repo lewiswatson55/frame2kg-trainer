@@ -27,7 +27,12 @@ class TokenizerExtension:
 
 def _tokens_from_cfg(cfg: Dict[str, Any]) -> List[str]:
     target_format = normalise_target_format(cfg.get("target_format", "json"))
-    configured = cfg.get("added_tokens") or cfg.get("tokenizer_added_tokens")
+    if "added_tokens" in cfg and cfg["added_tokens"] is not None:
+        configured = cfg["added_tokens"]
+    elif "tokenizer_added_tokens" in cfg and cfg["tokenizer_added_tokens"] is not None:
+        configured = cfg["tokenizer_added_tokens"]
+    else:
+        configured = None
     if configured is None and target_format == COMPRESSED_TOKENS_TARGET_FORMAT:
         configured = COMPRESSED_GRAPH_TOKENS
     if configured is None:
