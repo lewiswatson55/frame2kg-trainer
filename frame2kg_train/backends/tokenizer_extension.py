@@ -27,9 +27,9 @@ class TokenizerExtension:
 
 def _tokens_from_cfg(cfg: Dict[str, Any]) -> List[str]:
     target_format = normalise_target_format(cfg.get("target_format", "json"))
-    if "added_tokens" in cfg:
+    if "added_tokens" in cfg and cfg["added_tokens"] is not None:
         configured = cfg["added_tokens"]
-    elif "tokenizer_added_tokens" in cfg:
+    elif "tokenizer_added_tokens" in cfg and cfg["tokenizer_added_tokens"] is not None:
         configured = cfg["tokenizer_added_tokens"]
     else:
         configured = None
