@@ -9,8 +9,9 @@ DEFAULT_DATASET_ID = "lewiswatson/Frame2KG-YC2"
 
 
 def _ensure_image_column(ds: Dataset) -> Dataset:
-    if ds.features["image"].__class__.__name__ != "Image":
-        return ds.cast_column("image", HFImage())
+    image_feature = ds.features["image"]
+    if image_feature.__class__.__name__ != "Image" or not getattr(image_feature, "decode", True):
+        return ds.cast_column("image", HFImage(decode=True))
     return ds
 
 

@@ -46,6 +46,21 @@ def _graph_text_for(collator: Any, graph: Any) -> str:
     )
 
 
+def _graph_value_for(collator: Any, example: Dict[str, Any]) -> Any:
+    column = getattr(collator, "graph_column", "graph")
+    if column not in example:
+        raise KeyError(f"Configured graph_column {column!r} is missing from dataset example")
+    return example[column]
+
+
+def user_content_for_image(image: Any, prompt: str) -> List[Dict[str, Any]]:
+    image_part = {"type": "image"} if image is None else {"type": "image", "image": image}
+    content = [image_part]
+    if prompt:
+        content.append({"type": "text", "text": prompt})
+    return content
+
+
 def _non_pad_mask(inputs: Dict[str, torch.Tensor], input_ids: torch.Tensor, pad_id: int) -> torch.Tensor:
     attention_mask = inputs.get("attention_mask")
     if attention_mask is not None:
@@ -101,14 +116,14 @@ class QwenVLDataCollator:
 
     def __call__(self, batch: List[Dict[str, Any]]):
         images = [self._to_pil(b["image"]) for b in batch]
-        gold_graphs = [b["graph"] for b in batch]
+        gold_graphs = [_graph_value_for(self, b) for b in batch]
         mode = batch[0].get("mode", "train")
 
         chats = []
         for img, g in zip(images, gold_graphs):
             chats.append([
                 {"role": "system", "content": [{"type": "text", "text": self.system_prompt}]},
-                {"role": "user", "content": [{"type": "image", "image": img}, {"type": "text", "text": self.user_prompt}]},
+                {"role": "user", "content": user_content_for_image(img, self.user_prompt)},
                 {"role": "assistant", "content": [{"type": "text", "text": _graph_text_for(self, g)}]},
             ])
 
@@ -194,7 +209,7 @@ class LFMVLDataCollator:
     def __call__(self, batch: List[Dict[str, Any]]):
         images = [self._to_pil(b["image"]) for b in batch]
         batched_images = [[img] for img in images]
-        gold_graphs = [b["graph"] for b in batch]
+        gold_graphs = [_graph_value_for(self, b) for b in batch]
         mode = batch[0].get("mode", "train")
 
         chats = []
@@ -204,10 +219,7 @@ class LFMVLDataCollator:
                     {"role": "system", "content": [{"type": "text", "text": self.system_prompt}]},
                     {
                         "role": "user",
-                        "content": [
-                            {"type": "image", "image": img},
-                            {"type": "text", "text": self.user_prompt},
-                        ],
+                        "content": user_content_for_image(img, self.user_prompt),
                     },
                     {"role": "assistant", "content": [{"type": "text", "text": _graph_text_for(self, g)}]},
                 ]
@@ -282,7 +294,7 @@ class Gemma4VLDataCollator:
     def __call__(self, batch: List[Dict[str, Any]]):
         images = [self._to_pil(b["image"]) for b in batch]
         batched_images = [[img] for img in images]
-        gold_graphs = [b["graph"] for b in batch]
+        gold_graphs = [_graph_value_for(self, b) for b in batch]
         mode = batch[0].get("mode", "train")
 
         chats = []
@@ -292,10 +304,7 @@ class Gemma4VLDataCollator:
                     {"role": "system", "content": [{"type": "text", "text": self.system_prompt}]},
                     {
                         "role": "user",
-                        "content": [
-                            {"type": "image", "image": img},
-                            {"type": "text", "text": self.user_prompt},
-                        ],
+                        "content": user_content_for_image(img, self.user_prompt),
                     },
                     {"role": "assistant", "content": [{"type": "text", "text": _graph_text_for(self, g)}]},
                 ]
@@ -399,10 +408,7 @@ class InternVL35DataCollator:
             {"role": "system", "content": [{"type": "text", "text": self.system_prompt}]},
             {
                 "role": "user",
-                "content": [
-                    {"type": "image"},
-                    {"type": "text", "text": self.user_prompt},
-                ],
+                "content": user_content_for_image(None, self.user_prompt),
             },
         ]
         if graph is not None:
@@ -434,7 +440,7 @@ class InternVL35DataCollator:
 
     def __call__(self, batch: List[Dict[str, Any]]):
         images = [self._to_pil(b["image"]) for b in batch]
-        gold_graphs = [b["graph"] for b in batch]
+        gold_graphs = [_graph_value_for(self, b) for b in batch]
         mode = batch[0].get("mode", "train")
 
         full_texts = [
@@ -513,10 +519,7 @@ class Llama32VisionDataCollator:
             {"role": "system", "content": [{"type": "text", "text": self.system_prompt}]},
             {
                 "role": "user",
-                "content": [
-                    {"type": "image"},
-                    {"type": "text", "text": self.user_prompt},
-                ],
+                "content": user_content_for_image(None, self.user_prompt),
             },
         ]
         if graph is not None:
@@ -545,7 +548,7 @@ class Llama32VisionDataCollator:
     def __call__(self, batch: List[Dict[str, Any]]):
         images = [self._to_pil(b["image"]) for b in batch]
         batched_images = [[img] for img in images]
-        gold_graphs = [b["graph"] for b in batch]
+        gold_graphs = [_graph_value_for(self, b) for b in batch]
         mode = batch[0].get("mode", "train")
 
         full_texts = [
@@ -621,7 +624,7 @@ class SmolVLMDataCollator:
     def __call__(self, batch: List[Dict[str, Any]]):
         images = [self._to_pil(b["image"]) for b in batch]
         batched_images = [[img] for img in images]
-        gold_graphs = [b["graph"] for b in batch]
+        gold_graphs = [_graph_value_for(self, b) for b in batch]
         mode = batch[0].get("mode", "train")
 
         chats = []
@@ -631,10 +634,7 @@ class SmolVLMDataCollator:
                     {"role": "system", "content": [{"type": "text", "text": self.system_prompt}]},
                     {
                         "role": "user",
-                        "content": [
-                            {"type": "image", "image": img},
-                            {"type": "text", "text": self.user_prompt},
-                        ],
+                        "content": user_content_for_image(img, self.user_prompt),
                     },
                     {"role": "assistant", "content": [{"type": "text", "text": _graph_text_for(self, g)}]},
                 ]
@@ -707,10 +707,7 @@ class FastVLMDataCollator:
             {"role": "system", "content": [{"type": "text", "text": self.system_prompt}]},
             {
                 "role": "user",
-                "content": [
-                    {"type": "image", "image": image},
-                    {"type": "text", "text": self.user_prompt},
-                ],
+                "content": user_content_for_image(image, self.user_prompt),
             },
         ]
         if graph is not None:
@@ -773,7 +770,7 @@ class FastVLMDataCollator:
 
     def __call__(self, batch: List[Dict[str, Any]]):
         images = [self._to_pil(b["image"]) for b in batch]
-        gold_graphs = [b["graph"] for b in batch]
+        gold_graphs = [_graph_value_for(self, b) for b in batch]
         mode = batch[0].get("mode", "train")
         target_texts = [_graph_text_for(self, graph) for graph in gold_graphs]
 

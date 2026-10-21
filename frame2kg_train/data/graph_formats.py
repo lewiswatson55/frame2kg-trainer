@@ -45,6 +45,18 @@ COMPRESSED_TOKENS_SYSTEM_PROMPT = (
     "The first token must be <|graph|>, and the last token must be <|end_graph|>."
 )
 
+V2_COMPRESSED_TOKENS_SYSTEM_PROMPT = (
+    "You are a VLM that outputs ONLY one Frame2KG compressed graph string. "
+    "Use the added structural tokens exactly as literal delimiters: "
+    "<|graph|>, <|nodes|>, <|node|>, <|id|>, <|label|>, <|bbox|>, <|conf|>, <|attrs|>, "
+    "<|edges|>, <|edge|>, <|src|>, <|pred|>, <|tgt|>, <|end_graph|>. "
+    "For each node, output its bounding box after <|bbox|> as four integer coordinates "
+    "x1,y1,x2,y2 in the 0-1000 image coordinate scale. Output confidence separately "
+    "after <|conf|>; output attributes after <|attrs|>. Preserve graph nodes and edges. "
+    "Do not output JSON, code fences, role tags, prefixes, suffixes, or prose. "
+    "The first token must be <|graph|>, and the last token must be <|end_graph|>."
+)
+
 COMPRESSED_TOKENS_USER_PROMPT = "Extract data as a compressed graph string."
 
 
@@ -72,10 +84,25 @@ def system_prompt_for_target_format(target_format: Any) -> str:
     return SYSTEM_PROMPT
 
 
+def system_prompt_for_schema(target_format: Any, graph_schema: Any = "legacy") -> str:
+    if str(graph_schema or "legacy").strip().lower() == "v2":
+        if normalise_target_format(target_format) != COMPRESSED_TOKENS_TARGET_FORMAT:
+            raise ValueError("graph_schema=v2 currently requires target_format=compressed_tokens")
+        return V2_COMPRESSED_TOKENS_SYSTEM_PROMPT
+    return system_prompt_for_target_format(target_format)
+
+
 def user_prompt_for_target_format(target_format: Any) -> str:
     if normalise_target_format(target_format) == COMPRESSED_TOKENS_TARGET_FORMAT:
         return COMPRESSED_TOKENS_USER_PROMPT
     return USER_PROMPT
+
+
+def user_prompt_for_schema(target_format: Any, graph_schema: Any = "legacy") -> str:
+    if str(graph_schema or "legacy").strip().lower() == "v2":
+        normalise_target_format(target_format)
+        return ""
+    return user_prompt_for_target_format(target_format)
 
 
 def normalise_graph_key_order(value: Any = "dataset") -> str:

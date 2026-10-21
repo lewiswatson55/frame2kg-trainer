@@ -16,6 +16,7 @@ from frame2kg_train.data.graph_formats import (
     graph_to_target_text,
     normalise_target_format,
 )
+from frame2kg_train.data.collators import user_content_for_image
 from frame2kg_train.eval.json_utils import first_json_object
 from frame2kg_train.eval.metrics import calc_node_scores, calc_edge_scores
 
@@ -77,6 +78,7 @@ class CustomWandbCallback(TrainerCallback):
     max_new_tokens: int
     graph_key_order: str = "dataset"
     target_format: str = "json"
+    graph_column: str = "graph"
 
     def __post_init__(self):
         self.target_format = normalise_target_format(self.target_format)
@@ -116,17 +118,14 @@ class CustomWandbCallback(TrainerCallback):
             if not isinstance(img,_Image.Image):
                 from PIL import Image as _Image2
                 img=_Image2.open(img).convert("RGB")
-            gt_raw=ex["graph"]
+            gt_raw=ex[self.graph_column]
             gt_str=graph_to_target_text(gt_raw, self.graph_key_order, self.target_format)
             # Build chat using the processor's template to ensure image placeholders match
             chat = [
                 {"role": "system", "content": [{"type": "text", "text": self.system_prompt}]},
                 {
                     "role": "user",
-                    "content": [
-                        {"type": "image", "image": img},
-                        {"type": "text", "text": self.user_prompt},
-                    ],
+                    "content": user_content_for_image(img, self.user_prompt),
                 },
             ]
             template_kwargs = {"tokenize": False, "add_generation_prompt": True}

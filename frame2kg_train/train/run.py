@@ -23,6 +23,8 @@ from frame2kg_train.data.graph_formats import (
     normalise_target_format,
     system_prompt_for_target_format,
     user_prompt_for_target_format,
+    system_prompt_for_schema,
+    user_prompt_for_schema,
 )
 
 def _post_run_wait_and_shutdown(cfg: Dict[str, Any], *, run_failed: bool) -> None:
@@ -94,8 +96,15 @@ class Runner:
         model_id = self.cfg.get("model_id", "Qwen/Qwen2.5-VL-3B-Instruct")
         graph_key_order = normalise_graph_key_order(self.cfg.get("graph_key_order", "dataset"))
         target_format = normalise_target_format(self.cfg.get("target_format", "json"))
-        system_prompt = self.cfg.get("system_prompt") or system_prompt_for_target_format(target_format)
-        user_prompt = self.cfg.get("user_prompt") or user_prompt_for_target_format(target_format)
+        system_prompt = self.cfg.get("system_prompt") or system_prompt_for_schema(
+            target_format, self.cfg.get("graph_schema", "legacy")
+        )
+        graph_schema = str(self.cfg.get("graph_schema", "legacy") or "legacy").strip().lower()
+        user_prompt = self.cfg.get("user_prompt")
+        if user_prompt is None:
+            user_prompt = user_prompt_for_schema(target_format, self.cfg.get("graph_schema", "legacy"))
+        elif graph_schema != "v2":
+            user_prompt = user_prompt or user_prompt_for_target_format(target_format)
         run_ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
         base_run_name = self.cfg.get("run_name", "frame2kg")
         run_name = f"{base_run_name}-{run_ts}"
@@ -120,6 +129,9 @@ class Runner:
             artifacts = backend.load(self.cfg)
             if hasattr(artifacts.collator, "graph_key_order"):
                 setattr(artifacts.collator, "graph_key_order", graph_key_order)
+            setattr(artifacts.collator, "graph_column", str(self.cfg.get("graph_column", "graph")))
+            if hasattr(artifacts.collator, "user_prompt"):
+                setattr(artifacts.collator, "user_prompt", user_prompt)
             if hasattr(artifacts.collator, "target_format"):
                 setattr(artifacts.collator, "target_format", target_format)
             if hasattr(artifacts.collator, "system_prompt"):
@@ -155,7 +167,7 @@ class Runner:
                 eval_ds = eval_ds.add_column("mode", ["eval"] * len(eval_ds))
                 # Attach pre‑stringified GT for metrics
                 compute_metrics._eval_label_texts = [
-                    graph_to_target_text(r["graph"], graph_key_order, target_format) for r in eval_ds
+                    graph_to_target_text(r[str(self.cfg.get("graph_column", "graph"))], graph_key_order, target_format) for r in eval_ds
                 ]  # type: ignore[attr-defined]
             else:
                 eval_ds = None
@@ -209,6 +221,7 @@ class Runner:
                 max_new_tokens=max_new,
                 graph_key_order=graph_key_order,
                 target_format=target_format,
+                graph_column=str(self.cfg.get("graph_column", "graph")),
             )
             include_processor_in_checkpoints = bool(
                 self.cfg.get("include_processor_in_adapter_checkpoints", target_format != "json")
